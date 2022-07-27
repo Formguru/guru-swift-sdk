@@ -3,6 +3,7 @@
  * Proprietary and confidential.
  */
 
+#if !os(macOS)
 import UIKit
 
 public protocol InferenceConsumer : AnyObject {
@@ -10,3 +11,4 @@ public protocol InferenceConsumer : AnyObject {
   
   func consumeAnalysis(analysis: Analysis)
 }
+#endif

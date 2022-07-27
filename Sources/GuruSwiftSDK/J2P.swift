@@ -67,10 +67,14 @@ public enum UserFacing {
   case other
 }
 
-public struct Keypoint {
+public struct Keypoint: Equatable {
   let x: Double
   let y: Double
   let score: Double
+  
+  static public func ==(lhs: Keypoint, rhs: Keypoint) -> Bool {
+    return lhs.x == rhs.x && lhs.y == rhs.y && lhs.score == rhs.score
+  }
 }
 
 public struct FrameInference {

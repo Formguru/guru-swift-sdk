@@ -3,12 +3,13 @@
  * Proprietary and confidential.
  */
 
+#if !os(macOS)
 import Foundation
 import AVFoundation
 import UIKit
+import MobileCoreServices
 import CoreML
 import Vision
-import MobileCoreServices
 
 public class LocalVideoInference : NSObject {
   let callback: InferenceConsumer
@@ -352,3 +353,4 @@ extension LocalVideoInference: AVCaptureVideoDataOutputSampleBufferDelegate {
     }
   }
 }
+#endif
