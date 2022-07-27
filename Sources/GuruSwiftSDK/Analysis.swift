@@ -107,7 +107,7 @@ class AnalysisClient {
     json["timestamp"] = inference.secondsSinceStart
     
     for nextLandmark in InferenceLandmark.allCases {
-      let keypoint = inference.keypointForLandmark(landmark: nextLandmark)
+      let keypoint = inference.keypointForLandmark(nextLandmark)
       
       if (keypoint != nil) {
         json["\(nextLandmark)"] = [

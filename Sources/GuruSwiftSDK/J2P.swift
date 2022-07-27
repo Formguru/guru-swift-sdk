@@ -61,6 +61,12 @@ public enum InferenceLandmark: String, CaseIterable {
   case rightAnkle = "right_ankle"
 }
 
+public enum UserFacing {
+  case right
+  case left
+  case other
+}
+
 public struct Keypoint {
   let x: Double
   let y: Double
@@ -73,11 +79,32 @@ public struct FrameInference {
   let secondsSinceStart: Double
   let frameIndex: Int
 
-  func keypointForLandmark(landmark: InferenceLandmark) -> Keypoint? {
+  public func keypointForLandmark(_ landmark: InferenceLandmark) -> Keypoint? {
     return keypoints?[cocoLabelToIdx[landmark.rawValue]!]
   }
   
-  func keypointForCoco(landmark: InferenceLandmark) -> Keypoint? {
-    return keypoints?[cocoLabelToIdx[landmark.rawValue]!]
+  public func userFacing() -> UserFacing {
+    let nose = keypointForLandmark(InferenceLandmark.nose)
+    if (nose == nil) {
+      return UserFacing.other
+    }
+    else {
+      let leftShoulder = keypointForLandmark(InferenceLandmark.leftShoulder)
+      let rightShoulder = keypointForLandmark(InferenceLandmark.rightShoulder)
+      if (leftShoulder != nil && rightShoulder != nil) {
+        if (nose!.x < leftShoulder!.x && nose!.x < rightShoulder!.x) {
+          return UserFacing.right
+        }
+        else if (nose!.x > leftShoulder!.x && nose!.x > rightShoulder!.x) {
+          return UserFacing.left
+        }
+        else {
+          return UserFacing.other
+        }
+      }
+      else {
+        return UserFacing.other
+      }
+    }
   }
 }

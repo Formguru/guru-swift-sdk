@@ -39,7 +39,7 @@ public class InferencePainter {
     landmark: InferenceLandmark,
     color: CGColor = UIColor.white.cgColor,
     size: Double = 20.0) -> InferencePainter {
-    let keypoint = inference.keypointForLandmark(landmark: landmark)
+    let keypoint = inference.keypointForLandmark(landmark)
     
     if (keypointIsGood(keypoint)) {
       context.setStrokeColor(color)
@@ -59,8 +59,8 @@ public class InferencePainter {
     connectorColor: CGColor = UIColor.black.cgColor,
     landmarkSize: Double = 20.0,
     connectorWidth: Double = 2.0) -> InferencePainter {
-    let fromKeypoint = inference.keypointForLandmark(landmark: from)
-    let toKeypoint = inference.keypointForLandmark(landmark: to)
+    let fromKeypoint = inference.keypointForLandmark(from)
+    let toKeypoint = inference.keypointForLandmark(to)
     
     if (keypointIsGood(fromKeypoint) && keypointIsGood(toKeypoint)) {
       context.setStrokeColor(connectorColor)
@@ -77,9 +77,9 @@ public class InferencePainter {
   }
   
   @discardableResult public func paintLandmarkAngle(center: InferenceLandmark, from: InferenceLandmark, to: InferenceLandmark, color: CGColor = UIColor.white.cgColor) -> InferencePainter {
-    let centerKeypoint = inference.keypointForLandmark(landmark: center)
-    let fromKeypoint = inference.keypointForLandmark(landmark: from)
-    let toKeypoint = inference.keypointForLandmark(landmark: to)
+    let centerKeypoint = inference.keypointForLandmark(center)
+    let fromKeypoint = inference.keypointForLandmark(from)
+    let toKeypoint = inference.keypointForLandmark(to)
     
     if (keypointIsGood(centerKeypoint) && keypointIsGood(fromKeypoint) && keypointIsGood(toKeypoint)) {
       context.setStrokeColor(color)
@@ -95,7 +95,7 @@ public class InferencePainter {
       context.strokePath()
       paintText(
         position: framePosition(centerKeypoint!) + CGPoint(x: 0, y: 40),
-        text: String(abs(Int(rad2deg(angleBetween(v1: centerFrom, v2: centerTo))))) + "º",
+        text: String(abs(Int(rad2deg(angleBetween(v1: centerTo, v2: centerFrom))))) + "º",
         color: color,
         fontSize: 32
       )
@@ -121,7 +121,11 @@ public class InferencePainter {
   }
   
   fileprivate func angleBetween(v1: CGVector, v2: CGVector) -> Double {
-    return atan2(v2.dy, v2.dx) - atan2(v1.dy, v1.dx)
+    var angleRadians = atan2(v2.dy, v2.dx) - atan2(v1.dy, v1.dx)
+    if angleRadians < 0 {
+      angleRadians += 2 * .pi
+    }
+    return angleRadians
   }
   
   fileprivate func framePosition(_ keypoint: Keypoint) -> CGPoint {

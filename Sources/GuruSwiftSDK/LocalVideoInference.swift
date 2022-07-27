@@ -159,7 +159,7 @@ public class LocalVideoInference : NSObject {
     }
     
     func point(landmark: InferenceLandmark) -> Keypoint? {
-      return prevFramePose!.keypointForLandmark(landmark: landmark)
+      return prevFramePose!.keypointForLandmark(landmark)
     }
     func isVisible(point: Keypoint?) -> Bool {
       let minScore = 0.1
