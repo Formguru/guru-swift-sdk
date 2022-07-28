@@ -124,7 +124,8 @@ public class LocalVideoInference : NSObject {
       keypoints: keypoints,
       timestamp: frameTimestamp,
       secondsSinceStart: frameTimestamp.timeIntervalSinceReferenceDate - startedAt!.timeIntervalSinceReferenceDate,
-      frameIndex: frameIndex
+      frameIndex: frameIndex,
+      previousFrame: latestInference
     )
     
     if (latestInference != nil) {
