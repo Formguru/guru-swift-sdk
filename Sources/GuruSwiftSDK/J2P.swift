@@ -64,6 +64,7 @@ public enum InferenceLandmark: String, CaseIterable {
 public enum UserFacing {
   case right
   case left
+  case toward
   case other
 }
 
@@ -113,13 +114,16 @@ public class FrameInference {
       return UserFacing.other
     }
     else {
-      let leftShoulder = keypointForLandmark(InferenceLandmark.leftShoulder)
-      let rightShoulder = keypointForLandmark(InferenceLandmark.rightShoulder)
-      if (leftShoulder != nil && rightShoulder != nil) {
-        if (nose!.x < leftShoulder!.x && nose!.x < rightShoulder!.x) {
+      let leftEar = keypointForLandmark(InferenceLandmark.leftEar)
+      let rightEar = keypointForLandmark(InferenceLandmark.rightEar)
+      if (leftEar != nil && rightEar != nil) {
+        if (nose!.x < leftEar!.x && nose!.x > rightEar!.x) {
+          return UserFacing.toward
+        }
+        else if (nose!.x < leftEar!.x && nose!.x < rightEar!.x) {
           return UserFacing.right
         }
-        else if (nose!.x > leftShoulder!.x && nose!.x > rightShoulder!.x) {
+        else if (nose!.x > leftEar!.x && nose!.x > rightEar!.x) {
           return UserFacing.left
         }
         else {
@@ -133,7 +137,7 @@ public class FrameInference {
   }
   
   private static func smoothedKeypoints(keypoints: [Int: Keypoint], previousFrame: FrameInference) -> [Int: Keypoint] {
-    let previousFrameWeight = 0.5
+    let currentFrameWeight = 0.25
 
     var smoothedKeypoints = [Int: Keypoint]()
     for nextLandmark in InferenceLandmark.allCases {
@@ -148,9 +152,9 @@ public class FrameInference {
         smoothedKeypoints[landmarkIndex] = previousKeypoint
       } else {
         smoothedKeypoints[landmarkIndex] = Keypoint(
-          x: (1 - previousFrameWeight) * previousKeypoint!.x + previousFrameWeight * currentKeypoint!.x,
-          y: (1 - previousFrameWeight) * previousKeypoint!.y + previousFrameWeight * currentKeypoint!.y,
-          score: (1 - previousFrameWeight) * previousKeypoint!.score + previousFrameWeight * currentKeypoint!.score
+          x: (1 - currentFrameWeight) * previousKeypoint!.x + currentFrameWeight * currentKeypoint!.x,
+          y: (1 - currentFrameWeight) * previousKeypoint!.y + currentFrameWeight * currentKeypoint!.y,
+          score: (1 - currentFrameWeight) * previousKeypoint!.score + currentFrameWeight * currentKeypoint!.score
         )
       }
     }
