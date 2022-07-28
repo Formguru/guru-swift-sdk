@@ -11,13 +11,11 @@ public class InferencePainter {
   
   let frame: UIImage
   let inference: FrameInference
-  let scoreThreshold: Double
   let context: CGContext
   
-  public init(frame: UIImage, inference: FrameInference, scoreThreshold: Double = 0.2) {
+  public init(frame: UIImage, inference: FrameInference) {
     self.frame = frame
     self.inference = inference
-    self.scoreThreshold = scoreThreshold
     
     UIGraphicsBeginImageContext(frame.size)
     self.frame.draw(at: CGPoint.zero)
@@ -38,13 +36,13 @@ public class InferencePainter {
   
   @discardableResult public func paintLandmark(
     landmark: InferenceLandmark,
-    color: CGColor = UIColor.white.cgColor,
+    color: UIColor = UIColor.white,
     size: Double = 20.0) -> InferencePainter {
     let keypoint = inference.keypointForLandmark(landmark)
     
     if (keypointIsGood(keypoint)) {
-      context.setStrokeColor(color)
-      context.setFillColor(color)
+      context.setStrokeColor(color.cgColor)
+      context.setFillColor(color.cgColor)
       let framePosition = framePosition(keypoint!)
       context.addEllipse(in: CGRect(x: framePosition.x - (size / 2.0), y: framePosition.y - (size / 2.0), width: size, height: size))
       context.drawPath(using: .fillStroke)
@@ -56,15 +54,15 @@ public class InferencePainter {
   @discardableResult public func paintLandmarkConnector(
     from: InferenceLandmark,
     to: InferenceLandmark,
-    landmarkColor: CGColor = UIColor.white.cgColor,
-    connectorColor: CGColor = UIColor.black.cgColor,
+    landmarkColor: UIColor = UIColor.white,
+    connectorColor: UIColor = UIColor.black,
     landmarkSize: Double = 20.0,
     connectorWidth: Double = 2.0) -> InferencePainter {
     let fromKeypoint = inference.keypointForLandmark(from)
     let toKeypoint = inference.keypointForLandmark(to)
     
     if (keypointIsGood(fromKeypoint) && keypointIsGood(toKeypoint)) {
-      context.setStrokeColor(connectorColor)
+      context.setStrokeColor(connectorColor.cgColor)
       context.setLineWidth(connectorWidth)
       context.move(to: framePosition(fromKeypoint!))
       context.addLine(to: framePosition(toKeypoint!))
@@ -77,35 +75,54 @@ public class InferencePainter {
     return self
   }
   
-  @discardableResult public func paintLandmarkAngle(center: InferenceLandmark, from: InferenceLandmark, to: InferenceLandmark, color: CGColor = UIColor.white.cgColor) -> InferencePainter {
+  @discardableResult public func paintLandmarkAngle(
+    center: InferenceLandmark,
+    from: InferenceLandmark,
+    to: InferenceLandmark,
+    clockwise: Bool,
+    backgroundColor: UIColor = UIColor.blue,
+    foregroundColor: UIColor = UIColor.white,
+    fontSize: Int = 48) -> InferencePainter {
     let centerKeypoint = inference.keypointForLandmark(center)
     let fromKeypoint = inference.keypointForLandmark(from)
     let toKeypoint = inference.keypointForLandmark(to)
     
     if (keypointIsGood(centerKeypoint) && keypointIsGood(fromKeypoint) && keypointIsGood(toKeypoint)) {
-      context.setStrokeColor(color)
       let centerTo = vector(from: centerKeypoint!, to: toKeypoint!)
       let centerFrom = vector(from: centerKeypoint!, to: fromKeypoint!)
-      context.addArc(
-        center: framePosition(centerKeypoint!),
-        radius: vectorLength(CGVector(dx: centerTo.dx * frame.size.width, dy: centerTo.dy * frame.size.height)) / 2,
+      let path = UIBezierPath()
+      path.move(to: framePosition(centerKeypoint!))
+      path.addArc(
+        withCenter: framePosition(centerKeypoint!),
+        radius: vectorLength(CGVector(dx: centerTo.dx * frame.size.width, dy: centerTo.dy * frame.size.height)),
         startAngle: angleBetween(v1: CGVector(dx: 1.0, dy: 0.0), v2: normalizeVector(centerTo)),
         endAngle: angleBetween(v1: CGVector(dx: 1.0, dy: 0.0), v2: normalizeVector(centerFrom)),
-        clockwise: false
+        clockwise: clockwise
       )
-      context.strokePath()
+      path.close()
+      backgroundColor.setFill()
+      path.fill()
+      
+      var angleDegrees: Double?
+      if (clockwise) {
+        angleDegrees = angleBetween(v1: centerTo, v2: centerFrom)
+      }
+      else {
+        angleDegrees = angleBetween(v1: centerFrom, v2: centerTo)
+      }
       paintText(
         position: framePosition(centerKeypoint!) + CGPoint(x: 0, y: 40),
-        text: String(abs(Int(rad2deg(angleBetween(v1: centerTo, v2: centerFrom))))) + "º",
-        color: color,
-        fontSize: 32
+        text: String(abs(Int(rad2deg(angleDegrees!)))) + "º",
+        color: foregroundColor,
+        fontSize: Double(fontSize),
+        rightOfPosition: clockwise
       )
     }
     
     return self
   }
   
-  fileprivate func paintText(position: CGPoint, text: String, color: CGColor, fontSize: Double) {
+  @discardableResult public func paintText(position: CGPoint, text: String, color: UIColor, fontSize: Double, rightOfPosition: Bool = true) -> InferencePainter {
     context.saveGState()
 
     let font = CTFontCreateWithName("SF" as CFString, fontSize, nil)
@@ -115,10 +132,15 @@ public class InferencePainter {
     let line = CTLineCreateWithAttributedString(attributedString)
 
     context.textPosition = position
+    if (!rightOfPosition) {
+      context.textPosition.x -= CTLineGetImageBounds(line, context).width
+    }
 
     CTLineDraw(line, context)
 
     context.restoreGState()
+    
+    return self
   }
   
   fileprivate func angleBetween(v1: CGVector, v2: CGVector) -> Double {
@@ -134,7 +156,7 @@ public class InferencePainter {
   }
   
   fileprivate func keypointIsGood(_ keypoint: Keypoint?) -> Bool {
-    return keypoint != nil && keypoint!.score > scoreThreshold
+    return keypoint != nil
   }
   
   fileprivate func normalizeVector(_ vector: CGVector) -> CGVector {
