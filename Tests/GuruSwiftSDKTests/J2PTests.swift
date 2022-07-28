@@ -16,8 +16,8 @@ final class J2PTests: XCTestCase {
   func testUserFacingLeft() {
     let frameInference = defaultFrameInference(keypoints: [
       cocoLabelToIdx["nose"]!: Keypoint(x: 0.5, y: 0.3, score: 1.0),
-      cocoLabelToIdx["left_shoulder"]!: Keypoint(x: 0.4, y: 0.4, score: 1.0),
-      cocoLabelToIdx["right_shoulder"]!: Keypoint(x: 0.4, y: 0.4, score: 1.0)
+      cocoLabelToIdx["left_ear"]!: Keypoint(x: 0.4, y: 0.4, score: 1.0),
+      cocoLabelToIdx["right_ear"]!: Keypoint(x: 0.4, y: 0.4, score: 1.0)
     ])
     
     XCTAssertEqual(frameInference.userFacing(), UserFacing.left)
@@ -26,8 +26,8 @@ final class J2PTests: XCTestCase {
   func testUserFacingRight() {
     let frameInference = defaultFrameInference(keypoints: [
       cocoLabelToIdx["nose"]!: Keypoint(x: 0.4, y: 0.3, score: 1.0),
-      cocoLabelToIdx["left_shoulder"]!: Keypoint(x: 0.5, y: 0.4, score: 1.0),
-      cocoLabelToIdx["right_shoulder"]!: Keypoint(x: 0.5, y: 0.4, score: 1.0)
+      cocoLabelToIdx["left_ear"]!: Keypoint(x: 0.5, y: 0.4, score: 1.0),
+      cocoLabelToIdx["right_ear"]!: Keypoint(x: 0.5, y: 0.4, score: 1.0)
     ])
     
     XCTAssertEqual(frameInference.userFacing(), UserFacing.right)
@@ -35,17 +35,17 @@ final class J2PTests: XCTestCase {
   
   func testUserFacingOtherIfNoNose() {
     let frameInference = defaultFrameInference(keypoints: [
-      cocoLabelToIdx["left_shoulder"]!: Keypoint(x: 0.5, y: 0.4, score: 1.0),
-      cocoLabelToIdx["right_shoulder"]!: Keypoint(x: 0.5, y: 0.4, score: 1.0)
+      cocoLabelToIdx["left_ear"]!: Keypoint(x: 0.5, y: 0.4, score: 1.0),
+      cocoLabelToIdx["right_ear"]!: Keypoint(x: 0.5, y: 0.4, score: 1.0)
     ])
     
     XCTAssertEqual(frameInference.userFacing(), UserFacing.other)
   }
   
-  func testUserFacingOtherIfMissingShoulder() {
+  func testUserFacingOtherIfMissingEar() {
     let frameInference = defaultFrameInference(keypoints: [
       cocoLabelToIdx["nose"]!: Keypoint(x: 0.5, y: 0.3, score: 1.0),
-      cocoLabelToIdx["right_shoulder"]!: Keypoint(x: 0.4, y: 0.4, score: 1.0)
+      cocoLabelToIdx["right_ear"]!: Keypoint(x: 0.4, y: 0.4, score: 1.0)
     ])
     
     XCTAssertEqual(frameInference.userFacing(), UserFacing.other)
@@ -56,7 +56,8 @@ final class J2PTests: XCTestCase {
       keypoints: keypoints,
       timestamp: Date(),
       secondsSinceStart: 1.0,
-      frameIndex: 0
+      frameIndex: 0,
+      previousFrame: nil
     )
   }
 }
