@@ -7,7 +7,7 @@
 import UIKit
 
 public protocol InferenceConsumer : AnyObject {
-  func consumeFrame(frame: UIImage, inference: FrameInference?)
+  func consumeFrame(frame: UIImage, inference: FrameInference)
   
   func consumeAnalysis(analysis: Analysis)
 }

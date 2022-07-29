@@ -65,14 +65,18 @@ public class LocalVideoInference : NSObject {
     
     startedAt = Date()
     analysisClient = AnalysisClient(videoId: videoId!, apiKey: apiKey)
-    session.startRunning()
+    DispatchQueue.global(qos: .userInitiated).async {
+      self.session.startRunning()
+    }
     
     return videoId!
   }
   
   public func stop() async throws -> Analysis {
     if (session.isRunning) {
-      session.stopRunning()
+      DispatchQueue.global(qos: .userInitiated).async {
+        self.session.stopRunning()
+      }
     }
     
     analysisClient!.waitUntilQuiet()
@@ -104,11 +108,11 @@ public class LocalVideoInference : NSObject {
     }
   }
   
-  private func inferFrame(imageBuffer: CMSampleBuffer) -> FrameInference? {
+  private func inferFrame(imageBuffer: CMSampleBuffer) -> (UIImage?, FrameInference?) {
     frameIndex += 1
     
     if (!inferenceLock.try()) {
-      return nil
+      return (nil, nil)
     }
     defer { inferenceLock.unlock() }
     
@@ -116,7 +120,7 @@ public class LocalVideoInference : NSObject {
     let bbox: CGRect = estimateBoundingBox(prevFramePose: latestInference)
     
     guard let image = bufferToImage(sampleBuffer: imageBuffer) else {
-      return nil
+      return (nil, nil)
     }
     
     let keypoints = runInference(image: image, box: bbox)
@@ -128,11 +132,7 @@ public class LocalVideoInference : NSObject {
       previousFrame: latestInference
     )
     
-    if (latestInference != nil) {
-      callback.consumeFrame(frame: image, inference: latestInference!)
-    }
-    
-    return latestInference
+    return (image, latestInference)
   }
   
   private func bufferToImage(sampleBuffer: CMSampleBuffer) -> UIImage? {
@@ -329,27 +329,37 @@ extension AVCaptureDevice {
 
 extension LocalVideoInference: AVCaptureVideoDataOutputSampleBufferDelegate {
   public func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
-    let frameInference = inferFrame(imageBuffer: sampleBuffer)
-    
-    if (frameInference != nil) {
-      Task {
-        var analysis: Analysis?
-        do {
-          analysis = try await analysisClient?.add(inference: latestInference!)
-        }
-        catch {
-          print("Failed to re-build analysis: \(error)")
+    DispatchQueue.global(qos: .userInteractive).async {
+      print("Callback isMainThread: \(Thread.isMainThread)")
+      let inferenceResult = self.inferFrame(imageBuffer: sampleBuffer)
+      let image: UIImage? = inferenceResult.0
+      let frameInference: FrameInference? = inferenceResult.1
+      
+      if (image != nil) {
+        DispatchQueue.main.async() {
+          self.callback.consumeFrame(frame: image!, inference: frameInference!)
         }
         
-        if (analysis != nil) {
-          callback.consumeAnalysis(analysis: analysis!)
+        Task {
+          do {
+            let analysis = try await self.analysisClient?.add(inference: frameInference!)
+            
+            if (analysis != nil) {
+              DispatchQueue.main.async() {
+                self.callback.consumeAnalysis(analysis: analysis!)
+              }
+            }
+          }
+          catch {
+            print("Failed to re-build analysis: \(error)")
+          }
         }
       }
-    }
-    
-    if (Date() > startedAt!.addingTimeInterval(maxDuration)) {
-      Task {
-        try await stop()
+      
+      if (Date() > self.startedAt!.addingTimeInterval(self.maxDuration)) {
+        Task {
+          try await self.stop()
+        }
       }
     }
   }
