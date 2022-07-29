@@ -5,16 +5,27 @@
 
 import Foundation
 
-public struct Analysis {
+public struct Analysis: Equatable {
   public let movement: String?
   public let reps: [Rep]
+  
+  static public func ==(lhs: Analysis, rhs: Analysis) -> Bool {
+    return lhs.movement == rhs.movement && lhs.reps == rhs.reps
+  }
 }
 
-public struct Rep {
+public struct Rep: Equatable {
   public let startTimestamp: UInt64
   public let midTimestamp: UInt64
   public let endTimestamp: UInt64
   public let analyses: [String: Any]
+  
+  static public func ==(lhs: Rep, rhs: Rep) -> Bool {
+    return lhs.startTimestamp == rhs.startTimestamp &&
+        lhs.midTimestamp == rhs.midTimestamp &&
+        lhs.endTimestamp == rhs.endTimestamp &&
+        NSDictionary(dictionary: lhs.analyses).isEqual(to: rhs.analyses)
+  }
 }
 
 class AnalysisClient {

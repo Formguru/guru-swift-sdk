@@ -15,6 +15,7 @@ let package = Package(
             targets: ["GuruSwiftSDK"]),
     ],
     dependencies: [
+      .package(url: "https://github.com/WeTransfer/Mocker.git", from: "2.5.6")
     ],
     targets: [
         .target(
@@ -26,6 +27,6 @@ let package = Package(
         ),
         .testTarget(
             name: "GuruSwiftSDKTests",
-            dependencies: ["GuruSwiftSDK"]),
+            dependencies: ["GuruSwiftSDK", "Mocker"]),
     ]
 )
