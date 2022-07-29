@@ -10,8 +10,12 @@ import Foundation
 
 class TestUtils {
   
-  static func randomDouble(max: Double = 100.0) -> Double {
+  static func randomDouble(max: Double = 1000.0) -> Double {
     return Double.random(in: 0.0 ..< max)
+  }
+  
+  static func randomInteger(max: Int = 1000) -> Int {
+    return Int.random(in: 0 ..< max)
   }
   
   static func randomString(length: Int = 16) -> String {
