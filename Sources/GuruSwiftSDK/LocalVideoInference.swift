@@ -330,7 +330,6 @@ extension AVCaptureDevice {
 extension LocalVideoInference: AVCaptureVideoDataOutputSampleBufferDelegate {
   public func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
     DispatchQueue.global(qos: .userInteractive).async {
-      print("Callback isMainThread: \(Thread.isMainThread)")
       let inferenceResult = self.inferFrame(imageBuffer: sampleBuffer)
       let image: UIImage? = inferenceResult.0
       let frameInference: FrameInference? = inferenceResult.1
