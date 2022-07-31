@@ -134,13 +134,15 @@ class AnalysisClient {
   
   private func jsonToAnalysis(json: [String: Any]) -> Analysis {
     var reps = [Rep]()
-    for rep: [String: Any] in (json["reps"] as! [[String: Any]]) {
-      reps.append(Rep(
-        startTimestamp: rep["startTimestampMs"] as! UInt64,
-        midTimestamp: rep["midTimestampMs"] as! UInt64,
-        endTimestamp: rep["endTimestampMs"] as! UInt64,
-        analyses: Dictionary(uniqueKeysWithValues: (rep["analyses"] as! [[String: Any]]).map{ ($0["analysisType"] as! String, $0["analysisScalar"]) })
-      ))
+    if (json["reps"] != nil) {
+      for rep: [String: Any] in (json["reps"] as! [[String: Any]]) {
+        reps.append(Rep(
+          startTimestamp: rep["startTimestampMs"] as! UInt64,
+          midTimestamp: rep["midTimestampMs"] as! UInt64,
+          endTimestamp: rep["endTimestampMs"] as! UInt64,
+          analyses: Dictionary(uniqueKeysWithValues: (rep["analyses"] as! [[String: Any]]).map{ ($0["analysisType"] as! String, $0["analysisScalar"]) })
+        ))
+      }
     }
     
     return Analysis(movement: json["liftType"] as? String, reps: reps)

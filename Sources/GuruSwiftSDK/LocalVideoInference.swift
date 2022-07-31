@@ -108,22 +108,17 @@ public class LocalVideoInference : NSObject {
     }
   }
   
-  private func inferFrame(imageBuffer: CMSampleBuffer) -> (UIImage?, FrameInference?) {
-    frameIndex += 1
+  private func updateInference(image: UIImage, frameIndex: Int) -> FrameInference? {
+    let frameTimestamp = Date()
     
     if (!inferenceLock.try()) {
-      return (nil, nil)
+      return nil
     }
     defer { inferenceLock.unlock() }
     
-    let frameTimestamp = Date()
     let bbox: CGRect = estimateBoundingBox(prevFramePose: latestInference)
-    
-    guard let image = bufferToImage(sampleBuffer: imageBuffer) else {
-      return (nil, nil)
-    }
-    
     let keypoints = runInference(image: image, box: bbox)
+    
     latestInference = FrameInference(
       keypoints: keypoints,
       timestamp: frameTimestamp,
@@ -132,11 +127,11 @@ public class LocalVideoInference : NSObject {
       previousFrame: latestInference
     )
     
-    return (image, latestInference)
+    return latestInference
   }
   
-  private func bufferToImage(sampleBuffer: CMSampleBuffer) -> UIImage? {
-    guard let pixelBuffer: CVImageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
+  private func bufferToImage(imageBuffer: CMSampleBuffer) -> UIImage? {
+    guard let pixelBuffer: CVImageBuffer = CMSampleBufferGetImageBuffer(imageBuffer) else {
       return nil
     }
     CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
@@ -329,36 +324,49 @@ extension AVCaptureDevice {
 
 extension LocalVideoInference: AVCaptureVideoDataOutputSampleBufferDelegate {
   public func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
-    DispatchQueue.global(qos: .userInteractive).async {
-      let inferenceResult = self.inferFrame(imageBuffer: sampleBuffer)
-      let image: UIImage? = inferenceResult.0
-      let frameInference: FrameInference? = inferenceResult.1
+    frameIndex += 1
+    let thisFrameIndex = frameIndex
+    
+    let image: UIImage? = bufferToImage(imageBuffer: sampleBuffer)
       
-      if (image != nil) {
-        DispatchQueue.main.async() {
-          self.callback.consumeFrame(frame: image!, inference: frameInference!)
-        }
+    if (image != nil) {
+      DispatchQueue.global(qos: .userInteractive).async {
+        let inference = self.updateInference(image: image!, frameIndex: thisFrameIndex)
         
-        Task {
-          do {
-            let analysis = try await self.analysisClient?.add(inference: frameInference!)
-            
-            if (analysis != nil) {
-              DispatchQueue.main.async() {
-                self.callback.consumeAnalysis(analysis: analysis!)
+        if (inference != nil) {
+          Task {
+            do {
+              let analysis = try await self.analysisClient?.add(inference: inference!)
+
+              if (analysis != nil) {
+                DispatchQueue.main.async() {
+                  self.callback.consumeAnalysis(analysis: analysis!)
+                }
               }
             }
-          }
-          catch {
-            print("Failed to re-build analysis: \(error)")
+            catch {
+              print("Failed to re-build analysis: \(error)")
+            }
           }
         }
       }
       
-      if (Date() > self.startedAt!.addingTimeInterval(self.maxDuration)) {
-        Task {
-          try await self.stop()
-        }
+      var inference = self.latestInference
+      if (inference == nil) {
+        inference = FrameInference(
+          keypoints: [:],
+          timestamp: Date(),
+          secondsSinceStart: Date().timeIntervalSinceReferenceDate - startedAt!.timeIntervalSinceReferenceDate,
+          frameIndex: frameIndex,
+          previousFrame: nil
+        )
+      }
+      self.callback.consumeFrame(frame: image!, inference: inference!)
+    }
+      
+    if (Date() > self.startedAt!.addingTimeInterval(self.maxDuration)) {
+      Task {
+        try await self.stop()
       }
     }
   }
