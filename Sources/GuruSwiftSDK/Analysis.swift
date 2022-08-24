@@ -30,24 +30,29 @@ public struct Rep: Equatable {
 
 class AnalysisClient {
   var buffer = [FrameInference]()
-  var lastBufferedTimestamp: Date?
   let bufferLock = NSLock()
   let buildLock = NSLock()
   let videoId: String
   let apiKey: String
-  let maxBufferSize = 100
-  let inferencePerSecond = 8.0
+  let maxBufferSize = 1000
   
-  init(videoId: String, apiKey: String) {
+  let maxPerSecond: Double
+  var numTokens: Double
+  var tokensLastReplenished: Date
+  
+  init(videoId: String, apiKey: String, maxPerSecond: Int = 8) {
     self.videoId = videoId
     self.apiKey = apiKey
+    self.maxPerSecond = Double(maxPerSecond)
+    
+    self.numTokens = self.maxPerSecond
+    self.tokensLastReplenished = Date()
   }
   
   func add(inference: FrameInference) async throws -> Analysis? {
     if (bufferLock.lock(before: Date().addingTimeInterval(TimeInterval(10)))) {
       if (readyToBuffer()) {
         buffer.append(inference)
-        lastBufferedTimestamp = Date()
         
         while (buffer.count > maxBufferSize) {
           buffer.removeFirst()
@@ -149,7 +154,26 @@ class AnalysisClient {
   }
   
   private func readyToBuffer() -> Bool {
-    return lastBufferedTimestamp == nil ||
-      (Date().timeIntervalSince1970 - lastBufferedTimestamp!.timeIntervalSince1970) > (1.0 / inferencePerSecond)
+    replenishTokens();
+    
+    if (numTokens >= 1.0) {
+      numTokens -= 1.0
+      return true
+    }
+    else {
+      return false
+    }
+  }
+  
+  private func replenishTokens() {
+    let now = Date()
+    if (numTokens < maxPerSecond) {
+      numTokens += (now.timeIntervalSince1970 - tokensLastReplenished.timeIntervalSince1970) * maxPerSecond
+
+      if (numTokens > maxPerSecond) {
+        numTokens = maxPerSecond
+      }
+    }
+    tokensLastReplenished = now
   }
 }

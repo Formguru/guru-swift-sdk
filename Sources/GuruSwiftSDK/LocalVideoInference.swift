@@ -16,6 +16,7 @@ public class LocalVideoInference : NSObject {
   let source: String
   let apiKey: String
   let maxDuration: TimeInterval
+  let analysisPerSecond: Int
   
   let session = AVCaptureSession()
   let inferenceLock = NSLock()
@@ -29,11 +30,17 @@ public class LocalVideoInference : NSObject {
   var videoId: String?
   var startedAt: Date?
   
-  public init(consumer: InferenceConsumer, cameraPosition: AVCaptureDevice.Position, source: String, apiKey: String, maxDuration: TimeInterval = 60) throws {
+  public init(consumer: InferenceConsumer,
+              cameraPosition: AVCaptureDevice.Position,
+              source: String,
+              apiKey: String,
+              maxDuration: TimeInterval = 60,
+              analysisPerSecond: Int = 8) throws {
     callback = consumer
     self.source = source
     self.apiKey = apiKey
     self.maxDuration = maxDuration
+    self.analysisPerSecond = analysisPerSecond
     
     vipnas = try! VipnasEndToEnd(contentsOf: Bundle(for: VipnasEndToEnd.self)
       .url(forResource: nil, withExtension:"mlmodelc", subdirectory: "GuruSwiftSDK_GuruSwiftSDK.bundle/")!
@@ -64,7 +71,7 @@ public class LocalVideoInference : NSObject {
     videoId = try await createVideo(activity: activity)
     
     startedAt = Date()
-    analysisClient = AnalysisClient(videoId: videoId!, apiKey: apiKey)
+    analysisClient = AnalysisClient(videoId: videoId!, apiKey: apiKey, maxPerSecond: analysisPerSecond)
     DispatchQueue.global(qos: .userInitiated).async {
       self.session.startRunning()
     }
