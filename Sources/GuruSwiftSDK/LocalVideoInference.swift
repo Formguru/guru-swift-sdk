@@ -21,7 +21,7 @@ public class LocalVideoInference : NSObject {
   let session = AVCaptureSession()
   let inferenceLock = NSLock()
   var frameIndex = -1
-  let vipnas: VipnasEndToEnd
+  var vipnas: VipnasEndToEnd?
   let width = 480.0
   let height = 640.0
   
@@ -41,10 +41,6 @@ public class LocalVideoInference : NSObject {
     self.apiKey = apiKey
     self.maxDuration = maxDuration
     self.analysisPerSecond = analysisPerSecond
-    
-    vipnas = try! VipnasEndToEnd(contentsOf: Bundle(for: VipnasEndToEnd.self)
-      .url(forResource: nil, withExtension:"mlmodelc", subdirectory: "GuruSwiftSDK_GuruSwiftSDK.bundle/")!
-    )
     
     super.init()
     
@@ -68,6 +64,8 @@ public class LocalVideoInference : NSObject {
   }
   
   public func start(activity: Activity) async throws -> String {
+    try! await initVipnas();
+    
     videoId = try await createVideo(activity: activity)
     
     startedAt = Date()
@@ -88,6 +86,19 @@ public class LocalVideoInference : NSObject {
     
     analysisClient!.waitUntilQuiet()
     return try await analysisClient!.flush()!
+  }
+  
+  private func initVipnas() async throws {
+    let fileManager = FileManager.default
+    let appSupportURL = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+    let permanentURL = appSupportURL.appendingPathComponent("GuruOnDeviceModel")
+    downloadModelFile(fileManager: fileManager, fileSubUrl: "coremldata.bin", modelLocation: permanentURL)
+    downloadModelFile(fileManager: fileManager, fileSubUrl: "metadata.json", modelLocation: permanentURL)
+    downloadModelFile(fileManager: fileManager, fileSubUrl: "model.mil", modelLocation: permanentURL)
+    downloadModelFile(fileManager: fileManager, fileSubUrl: "analytics/coremldata.bin", modelLocation: permanentURL)
+    downloadModelFile(fileManager: fileManager, fileSubUrl: "weights/weight.bin", modelLocation: permanentURL)
+    
+    self.vipnas = try! VipnasEndToEnd(contentsOf: URL.init(fileURLWithPath: permanentURL.path))
   }
   
   private func createVideo(activity: Activity) async throws -> String {
@@ -112,6 +123,33 @@ public class LocalVideoInference : NSObject {
     }
     else {
       throw APICallFailed.createVideoFailed(error: String(decoding: data, as: UTF8.self))
+    }
+  }
+  
+  private func downloadModelFile(fileManager: FileManager, fileSubUrl: String, modelLocation: URL) {
+    let permanentLocation = modelLocation.appendingPathComponent(fileSubUrl)
+    if (!fileManager.fileExists(atPath: permanentLocation.path)) {
+      print("Downloading \(fileSubUrl)")
+      try! fileManager.createDirectory(at: permanentLocation.deletingLastPathComponent(), withIntermediateDirectories: true)
+      
+      let group = DispatchGroup()
+      group.enter()
+      
+      let url = URL(string: "https://formguru-datasets.s3.us-west-2.amazonaws.com/on-device/20220920/VipnasEndToEnd.mlmodelc/" + fileSubUrl)!
+      let downloadTask = URLSession.shared.downloadTask(with: url) {
+        urlOrNil, responseOrNil, errorOrNil in
+        
+        guard let downloadedFile = urlOrNil else { return }
+        do {
+            _ = try FileManager.default.moveItem(at: downloadedFile, to: permanentLocation)
+        } catch {
+            print ("file error: \(error)")
+        }
+        group.leave()
+      }
+
+      downloadTask.resume()
+      group.wait()
     }
   }
   
@@ -290,7 +328,7 @@ public class LocalVideoInference : NSObject {
     let opt = MLPredictionOptions()
     opt.usesCPUOnly = USE_CPU_ONLY
     
-    let output = try! vipnas.prediction(input: input, options: opt)
+    let output = try! vipnas!.prediction(input: input, options: opt)
     let K = 17
     
     var keypoints = Dictionary<Int, [Double]>()
