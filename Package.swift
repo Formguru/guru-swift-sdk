@@ -20,10 +20,7 @@ let package = Package(
     targets: [
         .target(
             name: "GuruSwiftSDK",
-            dependencies: [],
-            resources: [
-                .copy("VipnasEndToEnd.mlmodelc"),
-            ]
+            dependencies: []
         ),
         .testTarget(
             name: "GuruSwiftSDKTests",
