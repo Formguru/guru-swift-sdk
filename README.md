@@ -154,7 +154,6 @@ If a new VipnasEndToEnd.mlpackage is available, then from root of package:
 ```bash
 xcrun coremlc compile VipnasEndToEnd.mlpackage .
 xcrun coremlc generate VipnasEndToEnd.mlpackage . --language Swift
-mv VipnasEndToEnd.mlmodelc Sources/GuruSwiftSDK
 ```
 
 ## How to run tests
