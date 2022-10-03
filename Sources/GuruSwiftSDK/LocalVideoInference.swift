@@ -162,17 +162,24 @@ public class LocalVideoInference : NSObject {
     defer { inferenceLock.unlock() }
     
     let bbox: CGRect = estimateBoundingBox(prevFramePose: latestInference)
-    let keypoints = runInference(image: image, box: bbox)
     
-    latestInference = FrameInference(
-      keypoints: keypoints,
-      timestamp: frameTimestamp,
-      secondsSinceStart: frameTimestamp.timeIntervalSinceReferenceDate - startedAt!.timeIntervalSinceReferenceDate,
-      frameIndex: frameIndex,
-      previousFrame: latestInference
-    )
-    
-    return latestInference
+    do {
+      let keypoints = try runInference(image: image, box: bbox)
+      
+      latestInference = FrameInference(
+        keypoints: keypoints,
+        timestamp: frameTimestamp,
+        secondsSinceStart: frameTimestamp.timeIntervalSinceReferenceDate - startedAt!.timeIntervalSinceReferenceDate,
+        frameIndex: frameIndex,
+        previousFrame: latestInference
+      )
+      
+      return latestInference
+    }
+    catch {
+      print("Failed to run inference: \(error.localizedDescription)")
+      return nil
+    }
   }
   
   private func bufferToImage(imageBuffer: CMSampleBuffer) -> UIImage? {
@@ -296,12 +303,12 @@ public class LocalVideoInference : NSObject {
     return newImage!
   }
   
-  private func runInference(image: UIImage, box: CGRect) -> [Int: Keypoint] {
+  private func runInference(image: UIImage, box: CGRect) throws -> [Int: Keypoint] {
     // our ML model only supports one resolution for now
     assert(image.size.height == height);
     assert(image.size.width == width);
     
-    let rawKeypoints = runVipnasInference(
+    let rawKeypoints = try runVipnasInference(
       image: image.cgImage!,
       box: box
     )
@@ -317,7 +324,7 @@ public class LocalVideoInference : NSObject {
   }
   
   let USE_CPU_ONLY = false
-  private func runVipnasInference(image: CGImage, box: CGRect) -> [Int: [Double]] {
+  private func runVipnasInference(image: CGImage, box: CGRect) throws -> [Int: [Double]] {
     let bboxFeat = try! MLMultiArray(shape: [1, 4], dataType: .float32);
     bboxFeat[0] = (box.minX * Double(image.width)).rounded() as NSNumber
     bboxFeat[1] = (box.minY * Double(image.height)).rounded() as NSNumber
@@ -328,7 +335,7 @@ public class LocalVideoInference : NSObject {
     let opt = MLPredictionOptions()
     opt.usesCPUOnly = USE_CPU_ONLY
     
-    let output = try! vipnas!.prediction(input: input, options: opt)
+    let output = try vipnas!.prediction(input: input, options: opt)
     let K = 17
     
     var keypoints = Dictionary<Int, [Double]>()
