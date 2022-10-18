@@ -148,6 +148,13 @@ Following is a list of the configurable options for `LocalVideoInference`:
 ## Recording
 If you wish to record the captured video then you can use an [AVAssetWriter](https://developer.apple.com/documentation/avfoundation/avassetwriter) to output each captured frame to a file. See [here](https://gist.github.com/yusuke024/b5cd3909d9d7f9e919291491f6b381f0#file-viewcontroller-swift-L82) for an example implementation.
 
+# Requirements
+This SDK requires iOS 15 or higher to function. It will throw a runtime error if
+run on iOS >= 13 and < 15.
+
+It has been tested for performance on iPhone 12 and higher. 
+iPhone 11 will function, albeit with slower performance.
+
 # Development
 ## How to rebuild generated model classes
 If a new VipnasEndToEnd.mlpackage is available, then from root of package:

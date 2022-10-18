@@ -7,6 +7,7 @@ import AVFoundation
 
 public enum InferenceSetupFailed: Error {
   case cameraNotFound(position: AVCaptureDevice.Position)
+  case iosRequirementUnmet
 }
 
 public enum APICallFailed: Error {

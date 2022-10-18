@@ -21,7 +21,7 @@ public class LocalVideoInference : NSObject {
   let session = AVCaptureSession()
   let inferenceLock = NSLock()
   var frameIndex = -1
-  var vipnas: VipnasEndToEnd?
+  var vipnas: AnyObject?
   let width = 480.0
   let height = 640.0
   
@@ -64,17 +64,22 @@ public class LocalVideoInference : NSObject {
   }
   
   public func start(activity: Activity) async throws -> String {
-    try! await initVipnas();
-    
-    videoId = try await createVideo(activity: activity)
-    
-    startedAt = Date()
-    analysisClient = AnalysisClient(videoId: videoId!, apiKey: apiKey, maxPerSecond: analysisPerSecond)
-    DispatchQueue.global(qos: .userInitiated).async {
-      self.session.startRunning()
+    if #available(iOS 15, *) {
+      try! await initVipnas();
+      
+      videoId = try await createVideo(activity: activity)
+      
+      startedAt = Date()
+      analysisClient = AnalysisClient(videoId: videoId!, apiKey: apiKey, maxPerSecond: analysisPerSecond)
+      DispatchQueue.global(qos: .userInitiated).async {
+        self.session.startRunning()
+      }
+      
+      return videoId!
     }
-    
-    return videoId!
+    else {
+      throw InferenceSetupFailed.iosRequirementUnmet
+    }
   }
   
   public func stop() async throws -> Analysis {
@@ -88,6 +93,7 @@ public class LocalVideoInference : NSObject {
     return try await analysisClient!.flush()!
   }
   
+  @available(macOS 12.0, iOS 15.0, tvOS 15.0, watchOS 8.0, *)
   private func initVipnas() async throws {
     let fileManager = FileManager.default
     let appSupportURL = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
@@ -325,27 +331,32 @@ public class LocalVideoInference : NSObject {
   
   let USE_CPU_ONLY = false
   private func runVipnasInference(image: CGImage, box: CGRect) throws -> [Int: [Double]] {
-    let bboxFeat = try! MLMultiArray(shape: [1, 4], dataType: .float32);
-    bboxFeat[0] = (box.minX * Double(image.width)).rounded() as NSNumber
-    bboxFeat[1] = (box.minY * Double(image.height)).rounded() as NSNumber
-    bboxFeat[2] = (box.width * Double(image.width)).rounded() as NSNumber
-    bboxFeat[3] = (box.height * Double(image.height)).rounded() as NSNumber
-    let input = try! VipnasEndToEndInput(image_nchwWith: image, bbox_xywh: bboxFeat)
-    
-    let opt = MLPredictionOptions()
-    opt.usesCPUOnly = USE_CPU_ONLY
-    
-    let output = try vipnas!.prediction(input: input, options: opt)
-    let K = 17
-    
-    var keypoints = Dictionary<Int, [Double]>()
-    for k in 0..<K {
-      let x = output.keypoints[[0, k, 0] as [NSNumber]]
-      let y = output.keypoints[[0, k, 1] as [NSNumber]]
-      let score = output.scores[[0, k] as [NSNumber]]
-      keypoints[k] = [x.doubleValue / width, y.doubleValue / height, score.doubleValue]
+    if #available(iOS 15, *) {
+      let bboxFeat = try! MLMultiArray(shape: [1, 4], dataType: .float32);
+      bboxFeat[0] = (box.minX * Double(image.width)).rounded() as NSNumber
+      bboxFeat[1] = (box.minY * Double(image.height)).rounded() as NSNumber
+      bboxFeat[2] = (box.width * Double(image.width)).rounded() as NSNumber
+      bboxFeat[3] = (box.height * Double(image.height)).rounded() as NSNumber
+      let input = try! VipnasEndToEndInput(image_nchwWith: image, bbox_xywh: bboxFeat)
+      
+      let opt = MLPredictionOptions()
+      opt.usesCPUOnly = USE_CPU_ONLY
+      
+      let output = try (vipnas as! VipnasEndToEnd).prediction(input: input, options: opt)
+      let K = 17
+      
+      var keypoints = Dictionary<Int, [Double]>()
+      for k in 0..<K {
+        let x = output.keypoints[[0, k, 0] as [NSNumber]]
+        let y = output.keypoints[[0, k, 1] as [NSNumber]]
+        let score = output.scores[[0, k] as [NSNumber]]
+        keypoints[k] = [x.doubleValue / width, y.doubleValue / height, score.doubleValue]
+      }
+      return keypoints
     }
-    return keypoints
+    else {
+      throw InferenceSetupFailed.iosRequirementUnmet
+    }
   }
   
   private func updateAnalysis(inference: FrameInference) {
