@@ -69,9 +69,9 @@ public enum UserFacing {
 }
 
 public struct Keypoint: Equatable {
-  let x: Double
-  let y: Double
-  let score: Double
+  public let x: Double
+  public let y: Double
+  public let score: Double
   
   static public func ==(lhs: Keypoint, rhs: Keypoint) -> Bool {
     return lhs.x == rhs.x && lhs.y == rhs.y && lhs.score == rhs.score
