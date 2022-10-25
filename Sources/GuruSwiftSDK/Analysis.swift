@@ -90,12 +90,12 @@ class AnalysisClient {
   }
   
   func waitUntilQuiet() {
-    if (bufferLock.lock(before: Date().addingTimeInterval(TimeInterval(10)))) {
+    if (bufferLock.lock(before: Date().addingTimeInterval(TimeInterval(30)))) {
       bufferLock.unlock()
-      if (buildLock.lock(before: Date().addingTimeInterval(TimeInterval(10)))) {
-        buildLock.unlock()
-        return
-      }
+    }
+    
+    if (buildLock.lock(before: Date().addingTimeInterval(TimeInterval(30)))) {
+      buildLock.unlock()
     }
   }
   
