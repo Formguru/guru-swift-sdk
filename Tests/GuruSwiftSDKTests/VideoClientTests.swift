@@ -1,6 +1,6 @@
 //
 //  VideoTests.swift
-//  
+//
 //
 //  Created by Andrew Stahlman on 10/27/22.
 //
@@ -11,36 +11,36 @@ import XCTest
 import Mocker
 
 final class VideoTests: XCTestCase {
-  
+
   let apiKey = TestUtils.randomString()
   let VIDEO_ID = TestUtils.randomString()
   let FIELD1_VAL = TestUtils.randomString()
   let FIELD2_VAL = TestUtils.randomString()
   let client = VideoClient()
   let videoFileUrl = Bundle.module.url(forResource: "rick-squat", withExtension: "mp4")!
-  
+
   func testRemoteUploadReturnsVideoId() async throws {
     expectCreateVideoReturns(responseBody: validCreateVideoResponse())
-    
+
     var numS3Calls = 0
     expectS3Returns200(onRequest: {request in
       try! self.assertThatMultipartFieldsAreSet(in: request)
       numS3Calls += 1
     })
-    
+
     let actualVideoId = try! await client.uploadVideo(videoFile: videoFileUrl, accessToken: "foo-bar-buzz")
     XCTAssertEqual(actualVideoId!, VIDEO_ID)
     XCTAssertEqual(numS3Calls, 1)
   }
-  
+
   func testCreateVideoFailsWithBadAuthToken() async throws {
     expectCreateVideoRejectsWithAuthError()
-    
+
     var numS3Calls = 0
     expectS3Returns200(onRequest: {request in
       numS3Calls += 1
     })
-    
+
     var gotError = false
     do {
       try await client.uploadVideo(videoFile: videoFileUrl, accessToken: "some-bad-token")
@@ -51,15 +51,15 @@ final class VideoTests: XCTestCase {
     XCTAssert(gotError)
     XCTAssertEqual(numS3Calls, 0)
   }
-  
+
   func testCreateVideoFailsWith400Status() async throws {
     expectCreateVideoRejectsWithStatus400(message: "File is too big or something")
-    
+
     var numS3Calls = 0
     expectS3Returns400(onRequest: {_ in
       numS3Calls += 1
     })
-    
+
     var gotError = false
     do {
       try await client.uploadVideo(videoFile: videoFileUrl, accessToken: "foo-bar-buzz")
@@ -70,16 +70,16 @@ final class VideoTests: XCTestCase {
     XCTAssertTrue(gotError)
     XCTAssertEqual(numS3Calls, 0)
   }
-  
+
   func testS3UploadFailsWith400Status() async throws {
     let postResponse = validCreateVideoResponse()
     expectCreateVideoReturns(responseBody: postResponse)
-    
+
     var numS3Calls = 0
     expectS3Returns400(onRequest: { request in
       numS3Calls += 1
     })
-    
+
     var gotError = false
     do {
       try await client.uploadVideo(videoFile: videoFileUrl, accessToken: "foo-bar-buzz")
@@ -89,7 +89,7 @@ final class VideoTests: XCTestCase {
     XCTAssertTrue(gotError)
     XCTAssertEqual(numS3Calls, 1)
   }
-  
+
   func expectS3Returns200(onRequest: @escaping (URLRequest) -> Void) -> Void {
     var s3Mock = Mock(url: URL(string: "https://fake-s3.amazonaws.com")!,
                       dataType: .json,
@@ -101,7 +101,7 @@ final class VideoTests: XCTestCase {
     }
     s3Mock.register()
   }
-  
+
   func expectS3Returns400(onRequest: @escaping (URLRequest) -> Void) -> Void {
     var s3Mock = Mock(url: URL(string: "https://fake-s3.amazonaws.com")!,
                       dataType: .json,
@@ -113,7 +113,7 @@ final class VideoTests: XCTestCase {
     }
     s3Mock.register()
   }
-  
+
   func expectCreateVideoReturns(responseBody: Data) -> Void {
     Mock(
       url: URL(string: "https://api.getguru.fitness/videos/")!,
@@ -122,7 +122,7 @@ final class VideoTests: XCTestCase {
       data: [.post : responseBody]
     ).register()
   }
-  
+
   func expectCreateVideoRejectsWithStatus400(message: String) -> Void {
     Mock(
       url: URL(string: "https://api.getguru.fitness/videos/")!,
@@ -131,7 +131,7 @@ final class VideoTests: XCTestCase {
       data: [.post : message.data(using: .utf8)! ]
     ).register()
   }
-  
+
   func expectCreateVideoRejectsWithAuthError() -> Void {
     Mock(
       url: URL(string: "https://api.getguru.fitness/videos/")!,
@@ -140,7 +140,7 @@ final class VideoTests: XCTestCase {
       data: [.post : "Authentication failed".data(using: .utf8)! ]
     ).register()
   }
-  
+
   private func assertThatMultipartFieldsAreSet(in request: URLRequest) throws {
     let expectedLines = [
       "Content-Disposition: form-data; name=\"field1\"\r\n\r\n\(FIELD1_VAL)",
@@ -155,7 +155,7 @@ final class VideoTests: XCTestCase {
       XCTAssert(strBody.contains(line), "Expected \(line) to be present")
     }
   }
-  
+
   private func readHttpBodyPrefix(request: URLRequest, numBytes: Int) -> String? {
     guard let bodyStream = request.httpBodyStream else {
       return nil
@@ -164,7 +164,7 @@ final class VideoTests: XCTestCase {
     let bufferSize: Int = 128
     let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
     var data = Data()
-    
+
     while bodyStream.hasBytesAvailable {
       let readData = bodyStream.read(buffer, maxLength: bufferSize)
       data.append(buffer, count: readData)
@@ -174,7 +174,7 @@ final class VideoTests: XCTestCase {
     bodyStream.close()
     return strBody
   }
-  
+
   func validCreateVideoResponse() -> Data {
     return try! JSONSerialization.data(withJSONObject: [
       "id": VIDEO_ID,

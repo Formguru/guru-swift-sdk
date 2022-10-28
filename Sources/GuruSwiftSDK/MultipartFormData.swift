@@ -11,34 +11,34 @@ struct MultipartFormDataRequest {
     private let boundary: String = UUID().uuidString
     var httpBody = NSMutableData()
     let url: URL
-    
+
     init(url: URL) {
         self.url = url
     }
-    
+
     func addTextField(named name: String, value: String) {
         httpBody.appendString(textFormField(named: name, value: value))
     }
-    
+
     private func textFormField(named name: String, value: String) -> String {
         var fieldString = "--\(boundary)\r\n"
         fieldString += "Content-Disposition: form-data; name=\"\(name)\"\r\n"
         fieldString += "\r\n"
         fieldString += "\(value)\r\n"
-        
+
         return fieldString
     }
-    
+
     func addFile(fileName: String, data: Data, mimeType: String = "video/quicktime") {
         httpBody.append(dataFormField(fieldName: "file", fileName: fileName, data: data, mimeType: mimeType))
     }
-    
+
     private func dataFormField(fieldName: String,
                                fileName: String,
                                data: Data,
                                mimeType: String) -> Data {
         let fieldData = NSMutableData()
-        
+
         fieldData.appendString("--\(boundary)\r\n")
         fieldData.appendString("Content-Disposition: form-data; name=\"\(fieldName)\"; filename=\"\(fileName)\"\r\n")
         fieldData.appendString("Content-Type: \(mimeType)\r\n")
@@ -47,13 +47,13 @@ struct MultipartFormDataRequest {
         fieldData.appendString("\r\n")
         return fieldData as Data
     }
-    
+
     func asURLRequest() -> URLRequest {
         var request = URLRequest(url: url)
-        
+
         request.httpMethod = "POST"
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-        
+
         httpBody.appendString("--\(boundary)--")
         request.httpBody = httpBody as Data
         return request
