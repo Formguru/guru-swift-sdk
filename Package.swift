@@ -6,7 +6,7 @@ import PackageDescription
 let package = Package(
     name: "GuruSwiftSDK",
     platforms: [
-        .iOS(.v13),
+        .iOS(.v15),
         .macOS(.v12)
     ],
     products: [
@@ -24,6 +24,10 @@ let package = Package(
         ),
         .testTarget(
             name: "GuruSwiftSDKTests",
-            dependencies: ["GuruSwiftSDK", "Mocker"]),
+            dependencies: ["GuruSwiftSDK", "Mocker"],
+            resources: [
+                .copy("Resources/rick-squat.mp4")
+            ]
+        ),
     ]
 )
