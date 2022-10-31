@@ -10,13 +10,13 @@ import XCTest
 @testable import GuruSwiftSDK
 import Mocker
 
-final class VideoTests: XCTestCase {
+final class GuruAPIClientTests: XCTestCase {
 
   let apiKey = TestUtils.randomString()
   let VIDEO_ID = TestUtils.randomString()
   let FIELD1_VAL = TestUtils.randomString()
   let FIELD2_VAL = TestUtils.randomString()
-  let client = VideoClient()
+  let client = GuruAPIClient()
   let videoFileUrl = Bundle.module.url(forResource: "rick-squat", withExtension: "mp4")!
 
   func testRemoteUploadReturnsVideoId() async throws {
@@ -29,7 +29,7 @@ final class VideoTests: XCTestCase {
     })
 
     let actualVideoId = try! await client.uploadVideo(videoFile: videoFileUrl, accessToken: "foo-bar-buzz")
-    XCTAssertEqual(actualVideoId!, VIDEO_ID)
+    XCTAssertEqual(actualVideoId, VIDEO_ID)
     XCTAssertEqual(numS3Calls, 1)
   }
 

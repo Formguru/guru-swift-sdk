@@ -5,11 +5,11 @@
 
 import Foundation
 
-class VideoClient {
+class GuruAPIClient {
 
   typealias VideoId = String
 
-  func uploadVideo(videoFile: URL, accessToken: String, domain: String? = nil, activity: String? = nil, repCount: Int? = nil) async throws -> VideoId? {
+  func uploadVideo(videoFile: URL, accessToken: String, domain: String? = nil, activity: String? = nil, repCount: Int? = nil) async throws -> VideoId {
 
     // TODO: check that the videoFile is a .mov?
     let videoBytes = try! Data(contentsOf: videoFile)
