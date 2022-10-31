@@ -106,14 +106,19 @@ class AnalysisClient {
     request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
     request.httpBody = try! JSONSerialization.data(withJSONObject: frames.map(frameInferenceToJson))
     
-    let (data, response) = try! await URLSession.shared.data(for: request)
-    
-    if ((response as? HTTPURLResponse)!.statusCode == 200) {
-      let json = try! JSONSerialization.jsonObject(with: data) as! [String: AnyObject]
-      return jsonToAnalysis(json: json)
+    do {
+      let (data, response) = try await URLSession.shared.data(for: request)
+      
+      if ((response as? HTTPURLResponse)!.statusCode == 200) {
+        let json = try! JSONSerialization.jsonObject(with: data) as! [String: AnyObject]
+        return jsonToAnalysis(json: json)
+      }
+      else {
+        throw APICallFailed.updateAnalysisFailed(error: String(decoding: data, as: UTF8.self))
+      }
     }
-    else {
-      throw APICallFailed.updateAnalysisFailed(error: String(decoding: data, as: UTF8.self))
+    catch let error as NSError {
+      throw APICallFailed.updateAnalysisFailed(error: error.localizedDescription)
     }
   }
   

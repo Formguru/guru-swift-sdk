@@ -7,7 +7,7 @@ final class AnalysisTests: XCTestCase {
   let videoId = TestUtils.randomString()
   let apiKey = TestUtils.randomString()
   
-  func testKeypointForLandmarkReturnsKeypoint() async throws {
+  func testAnalysisFrameCanBePushedToServer() async throws {
     let frameInference = randomFrameInference()
     let analysisClient = AnalysisClient(videoId: videoId, apiKey: apiKey)
     let expectedAnalysis = randomAnalysis()
@@ -20,6 +20,25 @@ final class AnalysisTests: XCTestCase {
     let actualAnalysis = try! await analysisClient.add(inference: frameInference)
     
     XCTAssertEqual(expectedAnalysis, actualAnalysis)
+  }
+  
+  func testNSErrorIsTransformed() async throws {
+    let frameInference = randomFrameInference()
+    let analysisClient = AnalysisClient(videoId: videoId, apiKey: apiKey)
+    let expectedAnalysis = randomAnalysis()
+    Mock(url: URL(string: "https://api.getguru.fitness/videos/\(videoId)/j2p")!,
+         dataType: .json,
+         statusCode: 200,
+         data: [.patch : analysisToResponse(expectedAnalysis)],
+         requestError: NSError(domain: NSURLErrorDomain, code: -1005)
+    ).register()
+    
+    do {
+      try await analysisClient.add(inference: frameInference)
+    }
+    catch is APICallFailed {
+      // expected
+    }
   }
   
   func analysisToResponse(_ analysis: Analysis) -> Data {
