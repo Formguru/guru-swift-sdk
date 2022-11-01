@@ -23,7 +23,7 @@ final class GuruAPIClientTests: XCTestCase {
     expectCreateVideoReturns(responseBody: validCreateVideoResponse())
 
     var numS3Calls = 0
-    expectS3Returns200(onRequest: {request in
+    expectS3ReturnsSuccess(onRequest: {request in
       try! self.assertThatMultipartFieldsAreSet(in: request)
       numS3Calls += 1
     })
@@ -37,7 +37,7 @@ final class GuruAPIClientTests: XCTestCase {
     expectCreateVideoRejectsWithAuthError()
 
     var numS3Calls = 0
-    expectS3Returns200(onRequest: {request in
+    expectS3ReturnsSuccess(onRequest: {request in
       numS3Calls += 1
     })
 
@@ -90,10 +90,10 @@ final class GuruAPIClientTests: XCTestCase {
     XCTAssertEqual(numS3Calls, 1)
   }
 
-  func expectS3Returns200(onRequest: @escaping (URLRequest) -> Void) -> Void {
+  func expectS3ReturnsSuccess(onRequest: @escaping (URLRequest) -> Void) -> Void {
     var s3Mock = Mock(url: URL(string: "https://fake-s3.amazonaws.com")!,
                       dataType: .json,
-                      statusCode: 200,
+                      statusCode: 204,
                       data: [.post : Data()]
     )
     s3Mock.onRequest = { [onRequest] request, _ in
