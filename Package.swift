@@ -24,6 +24,10 @@ let package = Package(
         ),
         .testTarget(
             name: "GuruSwiftSDKTests",
-            dependencies: ["GuruSwiftSDK", "Mocker"]),
+            dependencies: ["GuruSwiftSDK", "Mocker"],
+            resources: [
+                .copy("Resources/rick-squat.mp4")
+            ]
+        ),
     ]
 )
