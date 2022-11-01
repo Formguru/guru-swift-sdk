@@ -116,7 +116,7 @@ final class GuruAPIClientTests: XCTestCase {
 
   func expectCreateVideoReturns(responseBody: Data) -> Void {
     Mock(
-      url: URL(string: "https://api.getguru.fitness/videos/")!,
+      url: URL(string: "https://api.getguru.fitness/videos")!,
       dataType: .json,
       statusCode: 200,
       data: [.post : responseBody]
@@ -125,7 +125,7 @@ final class GuruAPIClientTests: XCTestCase {
 
   func expectCreateVideoRejectsWithStatus400(message: String) -> Void {
     Mock(
-      url: URL(string: "https://api.getguru.fitness/videos/")!,
+      url: URL(string: "https://api.getguru.fitness/videos")!,
       dataType: .json,
       statusCode: 400,
       data: [.post : message.data(using: .utf8)! ]
@@ -134,7 +134,7 @@ final class GuruAPIClientTests: XCTestCase {
 
   func expectCreateVideoRejectsWithAuthError() -> Void {
     Mock(
-      url: URL(string: "https://api.getguru.fitness/videos/")!,
+      url: URL(string: "https://api.getguru.fitness/videos")!,
       dataType: .json,
       statusCode: 401,
       data: [.post : "Authentication failed".data(using: .utf8)! ]

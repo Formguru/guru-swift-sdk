@@ -5,18 +5,20 @@
 
 import Foundation
 
-class GuruAPIClient {
+public class GuruAPIClient {
 
-  typealias VideoId = String
+  public typealias VideoId = String
 
-  func uploadVideo(videoFile: URL, accessToken: String, domain: String? = nil, activity: String? = nil, repCount: Int? = nil) async throws -> VideoId {
+  public init() {}
+
+  public func uploadVideo(videoFile: URL, accessToken: String, domain: String? = nil, activity: String? = nil, repCount: Int? = nil) async throws -> VideoId {
 
     // TODO: check that the videoFile is a .mov?
     let videoBytes = try! Data(contentsOf: videoFile)
     let numBytes = videoBytes.count
     let fileName = videoFile.lastPathComponent
 
-    var request = URLRequest(url: URL(string: "https://api.getguru.fitness/videos/")!)
+    var request = URLRequest(url: URL(string: "https://api.getguru.fitness/videos")!)
     request.httpMethod = "POST"
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
     request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
@@ -36,7 +38,8 @@ class GuruAPIClient {
     request.httpBody = try! JSONSerialization.data(withJSONObject: body)
     let (data, response) = try! await URLSession.shared.data(for: request)
 
-    guard (response as? HTTPURLResponse)!.statusCode == 200 else {
+    guard let httpResponse = (response as? HTTPURLResponse),
+          httpResponse.isSuccess() else {
       throw APICallFailed.createVideoFailed(error: String(decoding: data, as: UTF8.self))
     }
     guard let json = try! JSONSerialization.jsonObject(with: data) as? [String: Any] else {
@@ -66,13 +69,19 @@ class GuruAPIClient {
           continuation.resume(throwing: APICallFailed.uploadVideoFailed(error: "No response from S3"))
           return
         }
-        let statusCode = httpResponse.statusCode
-        if (statusCode == 200 || statusCode == 201) {
+        if (httpResponse.isSuccess()) {
           continuation.resume()
         } else {
-          continuation.resume(throwing: APICallFailed.uploadVideoFailed(error: "S3 returned HTTP \(statusCode)"))
+          continuation.resume(throwing: APICallFailed.uploadVideoFailed(error: "S3 returned HTTP \(httpResponse.statusCode)"))
         }
       }).resume()
     }
+  }
+}
+
+
+extension HTTPURLResponse {
+  func isSuccess() -> Bool {
+    return (Double(self.statusCode) / 100.0).rounded(.down) == 2
   }
 }
