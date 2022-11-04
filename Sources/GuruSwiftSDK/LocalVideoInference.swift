@@ -17,6 +17,7 @@ public class LocalVideoInference : NSObject {
   let apiKey: String
   let maxDuration: TimeInterval
   let analysisPerSecond: Int
+  let recordTo: URL?
   
   let session = AVCaptureSession()
   let inferenceLock = NSLock()
@@ -35,12 +36,14 @@ public class LocalVideoInference : NSObject {
               source: String,
               apiKey: String,
               maxDuration: TimeInterval = 60,
-              analysisPerSecond: Int = 8) throws {
+              analysisPerSecond: Int = 8,
+              recordTo: URL? = nil) throws {
     callback = consumer
     self.source = source
     self.apiKey = apiKey
     self.maxDuration = maxDuration
     self.analysisPerSecond = analysisPerSecond
+    self.recordTo = recordTo
     
     super.init()
     
@@ -72,7 +75,15 @@ public class LocalVideoInference : NSObject {
       startedAt = Date()
       analysisClient = AnalysisClient(videoId: videoId!, apiKey: apiKey, maxPerSecond: analysisPerSecond)
       DispatchQueue.global(qos: .userInitiated).async {
+        var recordOutput: AVCaptureMovieFileOutput? = nil
+        if (self.recordTo != nil) {
+          recordOutput = AVCaptureMovieFileOutput()
+          self.session.addOutput(recordOutput!)
+        }
+
         self.session.startRunning()
+        
+        recordOutput?.startRecording(to: self.recordTo!, recordingDelegate: self)
       }
       
       return videoId!
@@ -434,4 +445,11 @@ extension LocalVideoInference: AVCaptureVideoDataOutputSampleBufferDelegate {
     }
   }
 }
+
+extension LocalVideoInference: AVCaptureFileOutputRecordingDelegate {
+  public func fileOutput(_ output: AVCaptureFileOutput, didFinishRecordingTo outputFileURL: URL, from connections: [AVCaptureConnection], error: Error?) {
+    print("Finished recording to \(outputFileURL) with error \(error)")
+  }
+}
+
 #endif

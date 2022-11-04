@@ -144,6 +144,7 @@ reps.
 Following is a list of the configurable options for `LocalVideoInference`:
 - `maxDuration`: The maximum amount of time, in seconds, that recording can run for. After this amount of time video capturing will automatically terminate (and the final analysis results sent to the callback). Default is 1 minute. Note that the longer a capture runs for, the longer the delay experienced in receiving new analysis results.
 - `analysisPerSecond`: The maximum number of frames per second to send to the server for rep counting and analysis. Default is 8 per second. Lower values will results in lower bandwidth usage, at the expense of less accurate rep counting and analysis. Higher values will use more bandwidth, but give more accurate results. Generally speaking, the faster a movement is, the higher this value should be. Note that the video is recorded at 30 fps and so setting any value higher than this will have no affect.
+- `recordTo`: If provided, the path to a file where the video will be recorded (in addition to also being streamed to the callback).
 
 ## Recording
 If you wish to record the captured video then you can use an [AVAssetWriter](https://developer.apple.com/documentation/avfoundation/avassetwriter) to output each captured frame to a file. See [here](https://gist.github.com/yusuke024/b5cd3909d9d7f9e919291491f6b381f0#file-viewcontroller-swift-L82) for an example implementation.
