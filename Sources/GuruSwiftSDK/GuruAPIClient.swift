@@ -9,9 +9,42 @@ public typealias VideoId = String
 
 public class GuruAPIClient {
 
-  public init() { }
+  let auth: APIAuth
+
+  public init(auth: APIAuth) {
+    self.auth = auth
+  }
+
+  private func overlays(videoId: VideoId) async throws -> [OverlayType: URL]? {
+    var request = URLRequest(url: URL(string: "https://api.getguru.fitness/videos/\(videoId)/overlays")!)
+    auth.apply(request)
+
+    do {
+      let (data, response) = try await URLSession.shared.data(for: request)
+
+      if ((response as? HTTPURLResponse)!.statusCode == 200) {
+        let json = try! JSONSerialization.jsonObject(with: data) as! [String: AnyObject]
+
+        let overlays = [OverlayType: URL]
+        for (type, data) in json {
+          if (data["status"] == "Pending") {
+            return nil
+          }
+          overlays.put(OverlayType(rawValue: type), URL(data["uri"]))
+        }
+
+        return overlays
+      }
+      else {
+        throw APICallFailed.getOverlaysFailed(error: String(decoding: data, as: UTF8.self))
+      }
+    }
+    catch let error as NSError {
+      throw APICallFailed.getOverlaysFailed(error: error.localizedDescription)
+    }
+  }
  
-  public func uploadVideo(videoFile: URL, accessToken: String, domain: String? = nil, activity: String? = nil, repCount: Int? = nil) async throws -> VideoId {
+  public func uploadVideo(videoFile: URL, domain: String? = nil, activity: String? = nil, repCount: Int? = nil, videoId: VideoId? = nil) async throws -> VideoId {
 
     // TODO: check that the videoFile is a .mov?
     let videoBytes = try! Data(contentsOf: videoFile)
@@ -21,7 +54,7 @@ public class GuruAPIClient {
     var request = URLRequest(url: URL(string: "https://api.getguru.fitness/videos")!)
     request.httpMethod = "POST"
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-    request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+    auth.apply(request)
     var body: [String: Any] = [
       "filename": fileName,
       "size": numBytes,

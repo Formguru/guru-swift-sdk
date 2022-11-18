@@ -103,6 +103,29 @@ public class LocalVideoInference : NSObject {
     analysisClient!.waitUntilQuiet()
     return try await analysisClient!.flush()!
   }
+
+  public func uploadVideo() async throws -> UploadResult {
+    if (self.recordTo == nil) {
+      throw UploadFailed.notRecorded()
+    }
+    if (session.isRunning) {
+      throw UploadFailed.stillRecording()
+    }
+
+    let guruApiClient = GuruApiClient(APIKeyAuth(apiKey))
+    await guruApiClient.uploadVideo(videoFile: recordTo!, videoId: videoId!)
+
+    var uploadResult: UploadResult?
+    while (uploadResult == nil) {
+      let overlays = await guruApiClient.overlays(videoId!)
+      if (overlays == nil) {
+        try await Task.sleep(nanoseconds: UInt64(Double(NSEC_PER_SEC)))
+      }
+      else {
+        return UploadResult(overlays: overlays)
+      }
+    }
+  }
   
   @available(macOS 12.0, iOS 15.0, tvOS 15.0, watchOS 8.0, *)
   private func initVipnas() async throws {
