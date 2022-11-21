@@ -16,7 +16,7 @@ final class GuruAPIClientTests: XCTestCase {
   let VIDEO_ID = TestUtils.randomString()
   let FIELD1_VAL = TestUtils.randomString()
   let FIELD2_VAL = TestUtils.randomString()
-  let client = GuruAPIClient()
+  let client = GuruAPIClient(auth: APIKeyAuth(apiKey: "foo-bar-buzz"))
   let videoFileUrl = Bundle.module.url(forResource: "rick-squat", withExtension: "mp4")!
 
   func testRemoteUploadReturnsVideoId() async throws {
@@ -28,7 +28,7 @@ final class GuruAPIClientTests: XCTestCase {
       numS3Calls += 1
     })
 
-    let actualVideoId = try! await client.uploadVideo(videoFile: videoFileUrl, accessToken: "foo-bar-buzz")
+    let actualVideoId = try! await client.uploadVideo(videoFile: videoFileUrl)
     XCTAssertEqual(actualVideoId, VIDEO_ID)
     XCTAssertEqual(numS3Calls, 1)
   }
@@ -43,7 +43,8 @@ final class GuruAPIClientTests: XCTestCase {
 
     var gotError = false
     do {
-      try await client.uploadVideo(videoFile: videoFileUrl, accessToken: "some-bad-token")
+      let badClient = GuruAPIClient(auth: APIKeyAuth(apiKey: "some-bad-token"))
+      try await badClient.uploadVideo(videoFile: videoFileUrl)
     } catch APICallFailed.createVideoFailed(let error) {
       XCTAssertTrue(error.contains("Authentication failed"))
       gotError = true
@@ -62,7 +63,7 @@ final class GuruAPIClientTests: XCTestCase {
 
     var gotError = false
     do {
-      try await client.uploadVideo(videoFile: videoFileUrl, accessToken: "foo-bar-buzz")
+      try await client.uploadVideo(videoFile: videoFileUrl)
     } catch APICallFailed.createVideoFailed(let error) {
       XCTAssertEqual(error, "File is too big or something")
       gotError = true
@@ -82,12 +83,20 @@ final class GuruAPIClientTests: XCTestCase {
 
     var gotError = false
     do {
-      try await client.uploadVideo(videoFile: videoFileUrl, accessToken: "foo-bar-buzz")
+      try await client.uploadVideo(videoFile: videoFileUrl)
     } catch APICallFailed.uploadVideoFailed {
       gotError = true
     }
     XCTAssertTrue(gotError)
     XCTAssertEqual(numS3Calls, 1)
+  }
+  
+  func testGetOverlaysReturnsTheURLs() async throws {
+    expectGetOverlaysReturns(responseBody: validGetOverlaysResponse())
+
+    let actualOverlays = try! await client.overlays(videoId: VIDEO_ID)
+    XCTAssertTrue(actualOverlays![OverlayType.all] != nil)
+    XCTAssertTrue(actualOverlays![OverlayType.skeleton] != nil)
   }
 
   func expectS3ReturnsSuccess(onRequest: @escaping (URLRequest) -> Void) -> Void {
@@ -140,6 +149,15 @@ final class GuruAPIClientTests: XCTestCase {
       data: [.post : "Authentication failed".data(using: .utf8)! ]
     ).register()
   }
+  
+  func expectGetOverlaysReturns(responseBody: Data) -> Void {
+    Mock(
+      url: URL(string: "https://api.getguru.fitness/videos/\(VIDEO_ID)/overlays")!,
+      dataType: .json,
+      statusCode: 200,
+      data: [.get : responseBody]
+    ).register()
+  }
 
   private func assertThatMultipartFieldsAreSet(in request: URLRequest) throws {
     let expectedLines = [
@@ -183,6 +201,20 @@ final class GuruAPIClientTests: XCTestCase {
         "field1": FIELD1_VAL,
         "field2": FIELD2_VAL,
       ]
+    ])
+  }
+  
+  func validGetOverlaysResponse() -> Data {
+    return try! JSONSerialization.data(withJSONObject: [
+      "status": "Success",
+      "all": [
+        "status": "Success",
+        "uri": "https://guru-overlays.s3.com/\(VIDEO_ID)-all.mp4"
+      ],
+      "skeleton": [
+        "status": "Success",
+        "uri": "https://guru-overlays.s3.com/\(VIDEO_ID)-skeleton.mp4"
+      ],
     ])
   }
 }

@@ -1,3 +1,5 @@
+import Foundation
+
 public struct UploadResult {
   /**
     The overlays built for an uploaded video.

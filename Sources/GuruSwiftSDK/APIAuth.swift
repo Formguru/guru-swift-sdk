@@ -1,34 +1,39 @@
-protocol APIAuth {
+import Foundation
+
+public protocol APIAuth {
   /**
    Applies this authorization method to the given request.
 
    Returns the same URLRequest, to allow method chaining.
    */
+  @discardableResult
   func apply(request: URLRequest) -> URLRequest
 }
 
-class AccessTokenAuth : APIAuth {
+public class AccessTokenAuth : APIAuth {
   let accessToken: String
 
   public init(accessToken: String) {
     self.accessToken = accessToken
   }
 
-  func apply(request: URLRequest) -> URLRequest {
-    request.setValue("Bearer \(self.accessToken)", forHTTPHeaderField: "Authorization")
-    return request
+  public func apply(request: URLRequest) -> URLRequest {
+    var requestCopy = request
+    requestCopy.setValue("Bearer \(self.accessToken)", forHTTPHeaderField: "Authorization")
+    return requestCopy
   }
 }
 
-class APIKeyAUth : APIAuth {
+public class APIKeyAuth : APIAuth {
   let apiKey: String
 
   public init(apiKey: String) {
     self.apiKey = apiKey
   }
 
-  func apply(request: URLRequest) -> URLRequest {
-    request.setValue(self.apiKey, forHTTPHeaderField: "x-api-key")
-    return request
+  public func apply(request: URLRequest) -> URLRequest {
+    var requestCopy = request
+    requestCopy.setValue(self.apiKey, forHTTPHeaderField: "x-api-key")
+    return requestCopy
   }
 }

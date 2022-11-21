@@ -149,6 +149,11 @@ Following is a list of the configurable options for `LocalVideoInference`:
 ## Recording
 If you wish to record the captured video then you can use an [AVAssetWriter](https://developer.apple.com/documentation/avfoundation/avassetwriter) to output each captured frame to a file. See [here](https://gist.github.com/yusuke024/b5cd3909d9d7f9e919291491f6b381f0#file-viewcontroller-swift-L82) for an example implementation.
 
+If the video is recorded, you may choose to call `uploadVideo` after recording has been stopped.
+By uploading your video to the Guru servers, overlay videos will be built for the video.
+These overlay videos include rep counts and wireframes drawn over the top of the video.
+The returned `UploadResult` will contain URLs from which the overlays can be downloaded.
+
 # Requirements
 This SDK requires iOS 15 or higher to function. It will throw a runtime error if
 run on iOS >= 13 and < 15.

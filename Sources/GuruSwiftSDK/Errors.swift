@@ -18,6 +18,6 @@ public enum APICallFailed: Error {
 }
 
 public enum UploadFailed: Error {
-  case notRecorded("This video was not recorded")
-  case stillRecording("Recording is still in progress")
+  case notRecorded(error: String = "This video was not recorded")
+  case stillRecording(error: String = "Recording is still in progress")
 }

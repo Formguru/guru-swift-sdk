@@ -112,19 +112,21 @@ public class LocalVideoInference : NSObject {
       throw UploadFailed.stillRecording()
     }
 
-    let guruApiClient = GuruApiClient(APIKeyAuth(apiKey))
-    await guruApiClient.uploadVideo(videoFile: recordTo!, videoId: videoId!)
+    let guruApiClient = GuruAPIClient(auth: APIKeyAuth(apiKey: apiKey))
+    try await guruApiClient.uploadVideo(videoFile: recordTo!, videoId: videoId!)
 
     var uploadResult: UploadResult?
     while (uploadResult == nil) {
-      let overlays = await guruApiClient.overlays(videoId!)
+      let overlays = try await guruApiClient.overlays(videoId: videoId!)
       if (overlays == nil) {
         try await Task.sleep(nanoseconds: UInt64(Double(NSEC_PER_SEC)))
       }
       else {
-        return UploadResult(overlays: overlays)
+        uploadResult = UploadResult(overlays: overlays!)
       }
     }
+    
+    return uploadResult!
   }
   
   @available(macOS 12.0, iOS 15.0, tvOS 15.0, watchOS 8.0, *)
