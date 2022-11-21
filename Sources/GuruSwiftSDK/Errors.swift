@@ -12,6 +12,12 @@ public enum InferenceSetupFailed: Error {
 
 public enum APICallFailed: Error {
   case createVideoFailed(error: String)
+  case getOverlaysFailed(error: String)
   case uploadVideoFailed(error: String)
   case updateAnalysisFailed(error: String)
+}
+
+public enum UploadFailed: Error {
+  case notRecorded(error: String = "This video was not recorded")
+  case stillRecording(error: String = "Recording is still in progress")
 }

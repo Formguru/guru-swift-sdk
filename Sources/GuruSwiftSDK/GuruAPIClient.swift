@@ -9,51 +9,108 @@ public typealias VideoId = String
 
 public class GuruAPIClient {
 
-  public init() { }
+  let auth: APIAuth
+
+  public init(auth: APIAuth) {
+    self.auth = auth
+  }
+
+  public func overlays(videoId: VideoId) async throws -> [OverlayType: URL]? {
+    var request = URLRequest(url: URL(string: "https://api.getguru.fitness/videos/\(videoId)/overlays")!)
+    request = auth.apply(request: request)
+
+    do {
+      let (data, response) = try await URLSession.shared.data(for: request)
+
+      if ((response as? HTTPURLResponse)!.statusCode == 200) {
+        let json = try! JSONSerialization.jsonObject(with: data) as! [String: Any]
+
+        var overlays : [OverlayType: URL] = [:]
+        for (overlayType, overlayData) in json {
+          if (overlayType == "status") {
+            if (overlayData as? String == "Pending") {
+              return nil
+            }
+          }
+          else {
+            let overlayDictionary = overlayData as! [String: String]
+            if ((overlayDictionary["status"]!) == "Pending") {
+              return nil
+            }
+            overlays[OverlayType(rawValue: overlayType)!] = URL(string: overlayDictionary["uri"]!)
+          }
+        }
+
+        return overlays
+      }
+      else {
+        throw APICallFailed.getOverlaysFailed(error: String(decoding: data, as: UTF8.self))
+      }
+    }
+    catch let error as NSError {
+      throw APICallFailed.getOverlaysFailed(error: error.localizedDescription)
+    }
+  }
  
-  public func uploadVideo(videoFile: URL, accessToken: String, domain: String? = nil, activity: String? = nil, repCount: Int? = nil) async throws -> VideoId {
+  public func uploadVideo(videoFile: URL, domain: String? = nil, activity: String? = nil, repCount: Int? = nil, videoId: VideoId? = nil) async throws -> VideoId {
 
     // TODO: check that the videoFile is a .mov?
     let videoBytes = try! Data(contentsOf: videoFile)
     let numBytes = videoBytes.count
     let fileName = videoFile.lastPathComponent
 
-    var request = URLRequest(url: URL(string: "https://api.getguru.fitness/videos")!)
-    request.httpMethod = "POST"
-    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-    request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-    var body: [String: Any] = [
-      "filename": fileName,
-      "size": numBytes,
-    ]
-    if activity != nil {
-      body["activity"] = activity
-    }
-    if domain != nil {
-      body["domain"] = domain
-    }
-    if repCount != nil {
-      body["repCount"] = repCount
-    }
-    request.httpBody = try! JSONSerialization.data(withJSONObject: body)
-    let (data, response) = try! await URLSession.shared.data(for: request)
+    if (videoId == nil) {
+      var request = URLRequest(url: URL(string: "https://api.getguru.fitness/videos")!)
+      request.httpMethod = "POST"
+      request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+      request = auth.apply(request: request)
+      var body: [String: Any] = [
+        "filename": fileName,
+        "size": numBytes,
+      ]
+      if activity != nil {
+        body["activity"] = activity
+      }
+      if domain != nil {
+        body["domain"] = domain
+      }
+      if repCount != nil {
+        body["repCount"] = repCount
+      }
+      request.httpBody = try! JSONSerialization.data(withJSONObject: body)
+      let (data, response) = try! await URLSession.shared.data(for: request)
 
-    guard let httpResponse = (response as? HTTPURLResponse),
-          httpResponse.isSuccess() else {
-      throw APICallFailed.createVideoFailed(error: String(decoding: data, as: UTF8.self))
+      return try await uploadFile(uploadInfoResponse: response, uploadInfoData: data, videoBytes: videoBytes, fileName: fileName)
     }
-    guard let json = try! JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-      throw APICallFailed.createVideoFailed(error: String(decoding: data, as: UTF8.self))
+    else {
+      var request = URLRequest(url: URL(string: "https://api.getguru.fitness/videos/\(videoId!)/video")!)
+      request.httpMethod = "PUT"
+      request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+      request = auth.apply(request: request)
+      let body: [String: Any] = [
+        "extension": (fileName as NSString).pathExtension,
+        "size": numBytes,
+      ]
+      request.httpBody = try! JSONSerialization.data(withJSONObject: body)
+      let (data, response) = try! await URLSession.shared.data(for: request)
+
+      return try await uploadFile(uploadInfoResponse: response, uploadInfoData: data, videoBytes: videoBytes, fileName: fileName)
+    }
+  }
+
+  private func uploadFile(uploadInfoResponse: URLResponse, uploadInfoData: Data, videoBytes: Data, fileName: String) async throws -> VideoId {
+    guard let httpResponse = (uploadInfoResponse as? HTTPURLResponse),
+          httpResponse.isSuccess() else {
+      throw APICallFailed.createVideoFailed(error: String(decoding: uploadInfoData, as: UTF8.self))
+    }
+    guard let json = try! JSONSerialization.jsonObject(with: uploadInfoData) as? [String: Any] else {
+      throw APICallFailed.createVideoFailed(error: String(decoding: uploadInfoData, as: UTF8.self))
     }
     let fileUploadUrl = URL(string: json["url"] as! String)!
     let fields = json["fields"] as! [String: String]
     let videoId = json["id"] as! String
-    try await uploadFile(to: fileUploadUrl, videoBytes: videoBytes, fileName: fileName, fields: fields)
-    return videoId
-  }
 
-  private func uploadFile(to url: URL, videoBytes: Data, fileName: String, fields: [String: String]) async throws -> Void {
-    let request = MultipartFormDataRequest(url: url)
+    let request = MultipartFormDataRequest(url: fileUploadUrl)
     for (k, v) in fields {
       request.addTextField(named: k, value: v)
     }
@@ -76,6 +133,8 @@ public class GuruAPIClient {
         }
       }).resume()
     }
+    
+    return videoId
   }
 }
 
