@@ -168,7 +168,7 @@ public class LocalVideoInference : NSObject {
     }
   }
   
-  private func downloadModelFile(fileManager: FileManager, fileSubUrl: String, modelLocation: URL) {
+private func downloadModelFile(fileManager: FileManager, fileSubUrl: String, modelLocation: URL) {
     let permanentLocation = modelLocation.appendingPathComponent(fileSubUrl)
     if (!fileManager.fileExists(atPath: permanentLocation.path)) {
       print("Downloading \(fileSubUrl)")
