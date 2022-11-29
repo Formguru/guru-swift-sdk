@@ -14,18 +14,24 @@ import Mocker
 @available(iOS 14.0, *)
 class PoseEstimationTests: XCTestCase {
   
+  override func setUp() async throws {
+    let url = URL(string: "https://formguru-datasets.s3.us-west-2.amazonaws.com/on-device/andrew-temp-test/VipnasNoPreprocess.mlpackage.zip")!
+    Mock(url: url,
+         dataType: .zip,
+         statusCode: 200,
+         data: [.get : getMLPackageBytes()]
+    ).register()
+  }
+  
   func testPoseModelReturnsSaneResults() async throws {
+    let modelStore = ModelStore()
     let jpgUrl = Bundle.module.url(forResource: "steph", withExtension: "jpg")!
     let jpgFile = Bundle.module.path(forResource: "steph", ofType: "jpg")!
     let stephCurry = UIImage(contentsOfFile: jpgFile)!
-//    let results = runVipnasInference(
-//      img: stephCurry.cgImage!,
-//      bbox: [60, 26, 280, 571]  // x, y, w, h
-//    )
-    let mlModel = try! await initModel().get()
+    let mlModel = try! await modelStore.getModel().get()
     let results = inferPose(model: mlModel,
-      img: stephCurry.cgImage!,
-      bbox: [60, 26, 280, 571]  // x, y, w, h
+                            img: stephCurry.cgImage!,
+                            bbox: [60, 26, 280, 571]  // x, y, w, h
     )!
     XCTAssertGreaterThan(averageScore(results: results), 0.65)
     XCTAssertLessThan(averageKeypointError(results: results), 30)
@@ -74,23 +80,11 @@ class PoseEstimationTests: XCTestCase {
     return sum / Float(scores.count)
   }
   
-  func testDownloadsPoseModelFromS3() async throws {
-    let url = URL(string: "https://formguru-datasets.s3.us-west-2.amazonaws.com/on-device/andrew-temp-test/VipnasNoPreprocess.mlpackage.zip")!
-    Mock(url: url,
-         dataType: .zip,
-         statusCode: 200,
-         data: [.get : getMLPackageBytes()]
-    ).register()
-    let mlModel = try! await initModel().get()
-  }
-  
   private func getMLPackageBytes() -> Data {
-    let p = Bundle.module.bundlePath
-    try! FileManager.default.contentsOfDirectory(atPath: p).forEach { p in
-      print(p)
-    }
-    let url = Bundle.module.url(forResource: "VipnasNoPreprocess", withExtension: "mlpackage.zip")!
-    let bytes = try! FileHandle(forReadingFrom: url).readDataToEndOfFile()
-    return bytes
+    let zipUrl = Bundle.module.url(
+      forResource: "VipnasNoPreprocess",
+      withExtension: "mlpackage.zip"
+    )!
+    return try! FileHandle(forReadingFrom: zipUrl).readDataToEndOfFile()
   }
 }

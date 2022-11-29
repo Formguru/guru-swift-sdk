@@ -21,8 +21,9 @@ public class LocalVideoInference : NSObject {
   
   let session = AVCaptureSession()
   let inferenceLock = NSLock()
+  let modelStore = ModelStore()
   var frameIndex = -1
-  var vipnas: AnyObject?
+  var poseModel: MLModel?
   let width = 480.0
   let height = 640.0
   
@@ -37,7 +38,8 @@ public class LocalVideoInference : NSObject {
               apiKey: String,
               maxDuration: TimeInterval = 60,
               analysisPerSecond: Int = 8,
-              recordTo: URL? = nil) throws {
+              recordTo: URL? = nil,
+              isPreviewEnabled: Bool = false) throws {
     callback = consumer
     self.source = source
     self.apiKey = apiKey
@@ -56,19 +58,34 @@ public class LocalVideoInference : NSObject {
       session.addInput(input)
       
       let output = AVCaptureVideoDataOutput()
-      output.alwaysDiscardsLateVideoFrames = true
+      output.alwaysDiscardsLateVideoFrames = false
       output.videoSettings = [kCVPixelBufferPixelFormatTypeKey as AnyHashable as! String: kCVPixelFormatType_32BGRA]
       output.setSampleBufferDelegate(self, queue: DispatchQueue.main)
       session.addOutput(output)
+      if (isPreviewEnabled) {
+        Task {
+          try! await self.startPreview()
+        }
+      }
     }
     else {
       throw InferenceSetupFailed.cameraNotFound(position: cameraPosition)
     }
   }
   
+  private func startPreview() async throws {
+    if #available(iOS 15, *) {
+      try! await ensureModelIsReady();
+      self.session.startRunning()
+    }
+    else {
+      throw InferenceSetupFailed.iosRequirementUnmet
+    }
+  }
+  
   public func start(activity: Activity) async throws -> String {
     if #available(iOS 15, *) {
-      try! await initVipnas();
+      try! await ensureModelIsReady();
       
       videoId = try await createVideo(activity: activity)
       
@@ -81,7 +98,9 @@ public class LocalVideoInference : NSObject {
           self.session.addOutput(recordOutput!)
         }
 
-        self.session.startRunning()
+        if (!self.session.isRunning) {
+          self.session.startRunning()
+        }
         
         recordOutput?.startRecording(to: self.recordTo!, recordingDelegate: self)
       }
@@ -130,17 +149,8 @@ public class LocalVideoInference : NSObject {
   }
   
   @available(macOS 12.0, iOS 15.0, tvOS 15.0, watchOS 8.0, *)
-  private func initVipnas() async throws {
-    let fileManager = FileManager.default
-    let appSupportURL = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-    let permanentURL = appSupportURL.appendingPathComponent("GuruOnDeviceModel")
-    downloadModelFile(fileManager: fileManager, fileSubUrl: "coremldata.bin", modelLocation: permanentURL)
-    downloadModelFile(fileManager: fileManager, fileSubUrl: "metadata.json", modelLocation: permanentURL)
-    downloadModelFile(fileManager: fileManager, fileSubUrl: "model.mil", modelLocation: permanentURL)
-    downloadModelFile(fileManager: fileManager, fileSubUrl: "analytics/coremldata.bin", modelLocation: permanentURL)
-    downloadModelFile(fileManager: fileManager, fileSubUrl: "weights/weight.bin", modelLocation: permanentURL)
-    
-    self.vipnas = try! VipnasEndToEnd(contentsOf: URL.init(fileURLWithPath: permanentURL.path))
+  private func ensureModelIsReady() async throws {
+    self.poseModel = try! await self.modelStore.getModel().get()
   }
   
   private func createVideo(activity: Activity) async throws -> String {
@@ -168,33 +178,6 @@ public class LocalVideoInference : NSObject {
     }
   }
   
-private func downloadModelFile(fileManager: FileManager, fileSubUrl: String, modelLocation: URL) {
-    let permanentLocation = modelLocation.appendingPathComponent(fileSubUrl)
-    if (!fileManager.fileExists(atPath: permanentLocation.path)) {
-      print("Downloading \(fileSubUrl)")
-      try! fileManager.createDirectory(at: permanentLocation.deletingLastPathComponent(), withIntermediateDirectories: true)
-      
-      let group = DispatchGroup()
-      group.enter()
-      
-      let url = URL(string: "https://formguru-datasets.s3.us-west-2.amazonaws.com/on-device/20220920/VipnasEndToEnd.mlmodelc/" + fileSubUrl)!
-      let downloadTask = URLSession.shared.downloadTask(with: url) {
-        urlOrNil, responseOrNil, errorOrNil in
-        
-        guard let downloadedFile = urlOrNil else { return }
-        do {
-            _ = try FileManager.default.moveItem(at: downloadedFile, to: permanentLocation)
-        } catch {
-            print ("file error: \(error)")
-        }
-        group.leave()
-      }
-
-      downloadTask.resume()
-      group.wait()
-    }
-  }
-  
   private func updateInference(image: UIImage, frameIndex: Int) -> FrameInference? {
     let frameTimestamp = Date()
     
@@ -207,11 +190,12 @@ private func downloadModelFile(fileManager: FileManager, fileSubUrl: String, mod
     
     do {
       let keypoints = try runInference(image: image, box: bbox)
-      
+      let secondsSinceStart = startedAt == nil ? 0 : Date().timeIntervalSinceReferenceDate - startedAt!.timeIntervalSinceReferenceDate
+
       latestInference = FrameInference(
         keypoints: keypoints,
         timestamp: frameTimestamp,
-        secondsSinceStart: frameTimestamp.timeIntervalSinceReferenceDate - startedAt!.timeIntervalSinceReferenceDate,
+        secondsSinceStart: secondsSinceStart,
         frameIndex: frameIndex,
         previousFrame: latestInference
       )
@@ -350,61 +334,38 @@ private func downloadModelFile(fileManager: FileManager, fileSubUrl: String, mod
     assert(image.size.height == height);
     assert(image.size.width == width);
     
-    let rawKeypoints = try runVipnasInference(
-      image: image.cgImage!,
-      box: box
-    )
-    var keypoints = [Int: Keypoint]()
-    for (key, values) in rawKeypoints {
-      keypoints[key] = Keypoint(
-        x: values[0],
-        y: values[1],
-        score: values[2]
-      )
-    }
-    return keypoints;
-  }
-  
-  let USE_CPU_ONLY = false
-  private func runVipnasInference(image: CGImage, box: CGRect) throws -> [Int: [Double]] {
-    if #available(iOS 15, *) {
-      let bboxFeat = try! MLMultiArray(shape: [1, 4], dataType: .float32);
-      bboxFeat[0] = (box.minX * Double(image.width)).rounded() as NSNumber
-      bboxFeat[1] = (box.minY * Double(image.height)).rounded() as NSNumber
-      bboxFeat[2] = (box.width * Double(image.width)).rounded() as NSNumber
-      bboxFeat[3] = (box.height * Double(image.height)).rounded() as NSNumber
-      let input = try! VipnasEndToEndInput(image_nchwWith: image, bbox_xywh: bboxFeat)
-      
-      let opt = MLPredictionOptions()
-      opt.usesCPUOnly = USE_CPU_ONLY
-      
-      let output = try (vipnas as! VipnasEndToEnd).prediction(input: input, options: opt)
-      let K = 17
-      
-      var keypoints = Dictionary<Int, [Double]>()
-      for k in 0..<K {
-        let x = output.keypoints[[0, k, 0] as [NSNumber]]
-        let y = output.keypoints[[0, k, 1] as [NSNumber]]
-        let score = output.scores[[0, k] as [NSNumber]]
-        keypoints[k] = [x.doubleValue / width, y.doubleValue / height, score.doubleValue]
-      }
-      return keypoints
-    }
-    else {
-      throw InferenceSetupFailed.iosRequirementUnmet
-    }
-  }
-  
-  private func updateAnalysis(inference: FrameInference) {
+    let bbox: [Int] = [
+      Int((box.minX * width).rounded()),
+      Int((box.minY * height).rounded()),
+      Int((box.width * width).rounded()),
+      Int((box.height * height).rounded()),
+    ]
     
+    var result = [Int: Keypoint]()
+    if let rawKeypoints = inferPose(model: self.poseModel!, img: image.cgImage!, bbox: bbox) {
+      for (key, values) in rawKeypoints {
+        result[key] = Keypoint(
+          x: Double(values[0]),
+          y: Double(values[1]),
+          score: Double(values[2])
+        )
+      }
+    }
+    return result;
   }
 }
 
 extension AVCaptureDevice {
   func set(frameRate: Double) {
-    guard let range = activeFormat.videoSupportedFrameRateRanges.first,
-          range.minFrameRate...range.maxFrameRate ~= frameRate
-    else {
+    let ranges = activeFormat.videoSupportedFrameRateRanges
+    var found = false
+    for range in ranges {
+      if (range.minFrameRate...range.maxFrameRate ~= frameRate) {
+        found = true
+      }
+    }
+    
+    guard found else {
       print("Requested FPS is not supported by the device's activeFormat !")
       return
     }
@@ -423,15 +384,20 @@ extension AVCaptureDevice {
 
 extension LocalVideoInference: AVCaptureVideoDataOutputSampleBufferDelegate {
   public func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+    let start = CFAbsoluteTimeGetCurrent()
     frameIndex += 1
     let thisFrameIndex = frameIndex
     
     let image: UIImage? = bufferToImage(imageBuffer: sampleBuffer)
-      
+    let buildInputDuration = 1000 * (CFAbsoluteTimeGetCurrent() - start)
+    // TODO: debug log
+    print("Build input: \(buildInputDuration) ms")
+
     if (image != nil) {
+      
       DispatchQueue.global(qos: .userInteractive).async {
         let inference = self.updateInference(image: image!, frameIndex: thisFrameIndex)
-        
+
         if (inference != nil) {
           Task {
             do {
@@ -452,18 +418,25 @@ extension LocalVideoInference: AVCaptureVideoDataOutputSampleBufferDelegate {
       
       var inference = self.latestInference
       if (inference == nil) {
+        let secondsSinceStart = startedAt == nil ? 0 : Date().timeIntervalSinceReferenceDate - startedAt!.timeIntervalSinceReferenceDate
+        
         inference = FrameInference(
           keypoints: [:],
           timestamp: Date(),
-          secondsSinceStart: Date().timeIntervalSinceReferenceDate - startedAt!.timeIntervalSinceReferenceDate,
+          secondsSinceStart: secondsSinceStart,
           frameIndex: frameIndex,
           previousFrame: nil
         )
       }
-      self.callback.consumeFrame(frame: image!, inference: inference!)
+      DispatchQueue.main.async {
+        self.callback.consumeFrame(frame: image!, inference: inference!)
+      }
+      let durationMs = 1000 * (CFAbsoluteTimeGetCurrent() - start)
+      print("Total \(durationMs) ms")
+
     }
       
-    if (Date() > self.startedAt!.addingTimeInterval(self.maxDuration)) {
+    if (self.startedAt != nil && Date() > self.startedAt!.addingTimeInterval(self.maxDuration)) {
       Task {
         try await self.stop()
       }

@@ -12,7 +12,7 @@ let package = Package(
     products: [
         .library(
             name: "GuruSwiftSDK",
-            targets: ["GuruSwiftSDK", "libgurucv"]),
+            targets: ["GuruSwiftSDK"]),
     ],
     dependencies: [
       .package(url: "https://github.com/WeTransfer/Mocker.git", from: "2.5.6"),
