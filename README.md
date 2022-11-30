@@ -171,17 +171,7 @@ via the `build-xcframework.sh` script:
 ```bash
 cd thirdparty
 ./build-xcframework.sh
-# or build from source: ./build-xcframework.sh --build-from-source`)
-
-```
-
-To re-build from source, add the flag `
-
-## How to rebuild generated model classes
-If a new VipnasEndToEnd.mlpackage is available, then from root of package:
-```bash
-xcrun coremlc compile VipnasEndToEnd.mlpackage .
-xcrun coremlc generate VipnasEndToEnd.mlpackage . --language Swift
+# or to build from source: ./build-xcframework.sh --build-from-source`)
 ```
 
 ## How to run tests
