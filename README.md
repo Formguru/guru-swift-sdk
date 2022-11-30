@@ -162,6 +162,21 @@ It has been tested for performance on iPhone 12 and higher.
 iPhone 11 will function, albeit with slower performance.
 
 # Development
+
+## How to build against OpenCV
+
+libgurucv must be linked against OpenCV. You can download the pre-built version
+via the `build-xcframework.sh` script:
+
+```bash
+cd thirdparty
+./build-xcframework.sh
+# or build from source: ./build-xcframework.sh --build-from-source`)
+
+```
+
+To re-build from source, add the flag `
+
 ## How to rebuild generated model classes
 If a new VipnasEndToEnd.mlpackage is available, then from root of package:
 ```bash
