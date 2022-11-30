@@ -38,7 +38,6 @@ actor ModelStore {
     let files = try! fm.contentsOfDirectory(atPath: root.path)
     var results: [OnDeviceModel] = []
     for file in files {
-      print(file)
       if file.hasSuffix(".mlmodelc") {
         let url = URL(string: file)!
         let modelId = file.prefix(file.count - url.pathExtension.count - 1)
@@ -49,20 +48,21 @@ actor ModelStore {
   }
   
   private func downloadFile(url: URL) async throws -> URL {
-    let fm = FileManager.default
     let rootUrl = getModelStoreRoot()
     return try await withCheckedThrowingContinuation({ continuation in
       URLSession.shared.downloadTask(with: url, completionHandler: {
         urlOrNil, responseOrNil, errorOrNil in
+        let fm = FileManager.default
+        
         if let err = errorOrNil {
           continuation.resume(throwing: err)
         } else if let tmpUrl = urlOrNil {
           let outputUrl = rootUrl.appendingPathComponent(url.lastPathComponent)
-          if FileManager.default.fileExists(atPath: outputUrl.path) {
-            try! FileManager.default.removeItem(at: outputUrl)
+          if fm.fileExists(atPath: outputUrl.path) {
+            try! fm.removeItem(at: outputUrl)
           }
-          try! FileManager.default.moveItem(at: tmpUrl, to: outputUrl)
-          assert(FileManager.default.fileExists(atPath: outputUrl.path))
+          try! fm.moveItem(at: tmpUrl, to: outputUrl)
+          assert(fm.fileExists(atPath: outputUrl.path))
           continuation.resume(returning: outputUrl)
         } else {
           continuation.resume(throwing: PoseModelError.downloadFailed)
@@ -71,32 +71,29 @@ actor ModelStore {
     })
   }
   
-  private func fetchCurrentModelMetadata() -> Dictionary<String, String> {
-    // TODO: call Guru to get this
-    return [
-      "modelId": "test-123",
-      "modelUrl":  "https://formguru-datasets.s3.us-west-2.amazonaws.com/on-device/andrew-temp-test/VipnasNoPreprocess.mlpackage.zip"
-    ]
+  func fetchCurrentModelMetadata(auth: APIAuth) async throws -> ModelMetadata {
+    let models = try! await GuruAPIClient(auth: auth).getOnDeviceModels()
+    return models.first(where: { $0.modelType == .pose })!
   }
   
-  private func fetchModel() async -> Result<URL, PoseModelError> {
-    let modelMeta = fetchCurrentModelMetadata()
-    let modelId = modelMeta["modelId"]!
+  private func fetchModel(auth: APIAuth) async -> Result<URL, PoseModelError> {
+    guard let modelMeta = try? await fetchCurrentModelMetadata(auth: auth) else {
+      return .failure(PoseModelError.downloadFailed)
+    }
     
     let existingModels = listModels()
-    let targetModel = existingModels.first(where: {model in
-      model.modelId == modelId
+    let cachedModel = existingModels.first(where: {model in
+      model.modelId == modelMeta.modelId
     })
-    if targetModel != nil {
-      return .success(targetModel!.localPath)
+    if cachedModel != nil {
+      return .success(cachedModel!.localPath)
     }
     
     // model isn't available locally, we need to fetch and compile it
-    let remoteUrl = URL(string: modelMeta["modelUrl"]!)!
     let fm = FileManager.default
     let modelZip: URL
     do {
-      modelZip = try await downloadFile(url: remoteUrl)
+      modelZip = try await downloadFile(url: modelMeta.modelUri)
     } catch {
       return .failure(PoseModelError.downloadFailed)
     }
@@ -116,15 +113,18 @@ actor ModelStore {
       return .failure(PoseModelError.compileFailed)
     }
     let permanentUrl = getModelStoreRoot().appendingPathComponent(
-      "\(modelId).\(modelUrl.pathExtension)")
+      "\(modelMeta.modelId).\(modelUrl.pathExtension)")
     _ = try! fm.replaceItemAt(permanentUrl, withItemAt: modelUrl)
-    print("Model compiled to \(permanentUrl)")
+    
+    if #available(iOS 14.0, *) {
+      logger.info("Model compiled to \(permanentUrl)")
+    }
     return .success(permanentUrl)
   }
   
-  public func getModel() async -> Result<MLModel, PoseModelError> {
+  public func getModel(auth: APIAuth) async -> Result<MLModel, PoseModelError> {
     if (self.model == nil) {
-      let result = await doInitModel()
+      let result = await doInitModel(auth: auth)
       switch result {
       case .success(let model):
         self.model = model
@@ -135,8 +135,8 @@ actor ModelStore {
     return .success(self.model!)
   }
   
-  private func doInitModel() async -> Result<MLModel, PoseModelError> {
-    switch await fetchModel() {
+  private func doInitModel(auth: APIAuth) async -> Result<MLModel, PoseModelError> {
+    switch await fetchModel(auth: auth) {
     case .failure(let err):
       return .failure(err)
     case .success(let url):

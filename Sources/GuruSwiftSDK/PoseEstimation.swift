@@ -24,31 +24,7 @@ public enum PoseModelError: Error {
   case compileFailed
 }
 
-
-private func preprocessImage(img: CGImage, bbox: [Int]) -> CGImage {
-  let bboxStruct = Bbox(x: Int32(bbox[0]), y: Int32(bbox[1]), w: Int32(bbox[2]), h: Int32(bbox[3]), category: 0)
-  let ptr = pixelsRGB(img: img)
-  let originalImage = RgbImage(rgb: ptr, height: Int32(img.height), width: Int32(img.width))
-  let withAlpha = true
-  let preprocessed = do_preprocess2(originalImage, bboxStruct, withAlpha)
-  var pixelBuffer: CVPixelBuffer?
-  CVPixelBufferCreateWithBytes(
-    nil,
-    Int(preprocessed.image.width),
-    Int(preprocessed.image.height),
-    kCVPixelFormatType_24RGB,
-    preprocessed.image.rgb,
-    Int(preprocessed.image.width * 3),
-    nil,
-    nil,
-    nil,
-    &pixelBuffer
-  )
-  let ciContext = CIContext()
-  let ciImage = CIImage(cvImageBuffer: pixelBuffer!)
-  return ciContext.createCGImage(ciImage, from: ciImage.extent)!
-}
-
+private let (INPUT_HEIGHT, INPUT_WIDTH) = (256, 192)
 
 private func parseOutput(_ output: MLFeatureProvider, _ preprocessed: ImageFeat, _ img: CGImage) -> [Int : [Float]] {
   var result = Dictionary<Int, [Float]>()
@@ -56,20 +32,21 @@ private func parseOutput(_ output: MLFeatureProvider, _ preprocessed: ImageFeat,
   let scores = output.featureValue(for: "scores")!.multiArrayValue!
   let K = 17
   
-  let scale_x = preprocessed.center_scale.scale_x
-  let scale_y = preprocessed.center_scale.scale_y
-  let sx = (scale_x * 200) / (192/4)
-  let sy = (scale_y * 200) / (256/4)
-  let cx = preprocessed.center_scale.center_x
+  let stdHeight = Float(200.0)
+  let scaleY = preprocessed.center_scale.scale_y
+  let scaleX = preprocessed.center_scale.scale_x
+  let sy = (scaleY * stdHeight) / (Float(INPUT_HEIGHT)/4)
+  let sx = (scaleX * stdHeight) / (Float(INPUT_WIDTH)/4)
   let cy = preprocessed.center_scale.center_y
+  let cx = preprocessed.center_scale.center_x
   
   for k in 0..<K {
     let x = keypoints[[0, k, 0] as [NSNumber]]
     let y = keypoints[[0, k, 1] as [NSNumber]]
     let score = scores[[0, k] as [NSNumber]]
     
-    let originalX = (x.floatValue * sx) + cx - ((scale_x * 200) / 2)
-    let originalY = (y.floatValue * sy) + cy - ((scale_y * 200) / 2)
+    let originalX = (x.floatValue * sx) + cx - ((scaleX * stdHeight) / 2)
+    let originalY = (y.floatValue * sy) + cy - ((scaleY * stdHeight) / 2)
     result[k] = [originalX / Float(img.width), originalY / Float(img.height), score.floatValue]
   }
   return result
@@ -112,13 +89,13 @@ func inferPose(model: MLModel, img: CGImage, bbox: [Int]) -> Dictionary<Int, [Fl
 
 private func imgToMLMultiArray(ptr: UnsafeMutableRawPointer) -> MLMultiArray {
   let strides = [
-    NSNumber(value: 3 * 256 * 192),
-    NSNumber(value: 256 * 192),
-    NSNumber(value: 192),
+    NSNumber(value: 3 * INPUT_HEIGHT * INPUT_WIDTH),
+    NSNumber(value: INPUT_HEIGHT * INPUT_WIDTH),
+    NSNumber(value: INPUT_WIDTH),
     NSNumber(value: 1)
   ]
   // TODO: deallocator?
-  return try! MLMultiArray(dataPointer: ptr, shape: [1, 3, 256, 192], dataType: .float32, strides: strides)
+  return try! MLMultiArray(dataPointer: ptr, shape: [1, 3, NSNumber(value: INPUT_HEIGHT), NSNumber(value: INPUT_WIDTH)], dataType: .float32, strides: strides)
 }
 
 public func pixelsRGB(img: CGImage) -> UnsafeMutablePointer<UInt8> {

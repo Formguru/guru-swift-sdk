@@ -1,9 +1,8 @@
-//
-//  preprocess.cpp
-//  Runner
-//
-//  Created by Andrew Stahlman on 6/16/22.
-//
+/* Copyright (C) Guru Movement Labs Inc - All Rights Reserved
+ * Unauthorized copying of this file, via any medium, is strictly prohibited.
+ * Proprietary and confidential.
+ */
+
 
 #include <libgurucv/preprocess.hpp>
 #include <opencv2/opencv.hpp>
@@ -67,6 +66,17 @@ const struct ImageFeat do_preprocess(
   return feat;
 }
 
+const struct RgbImage do_preprocess_as_img(
+                                            struct RgbImage image,
+                                            struct Bbox bbox
+                                     ) {
+  struct RgbImage result;
+  result.rgb = _preprocess(image, bbox, false).data;
+  result.height = 256;
+  result.width = 192;
+  return result;
+}
+
 cv::Mat _preprocess(
                                               struct RgbImage image,
                                               struct Bbox bbox,
@@ -86,25 +96,10 @@ cv::Mat _preprocess(
   return resized;
 }
 
-const struct PreprocessedImage do_preprocess2(
-                                              struct RgbImage image,
-                                              struct Bbox bbox,
-                                              bool with_alpha
-                                              ) {
-
-  struct PreprocessedImage result;
-  result.center_scale = _get_center_scale(bbox);
-  cv::Mat m = _preprocess(image, bbox, with_alpha);
-  result.image = _to_image(m, HEIGHT, WIDTH);
-  return result;
-}
-
-
 struct ImageFeat _to_feat(cv::Mat mat, struct CenterScale center_scale, int height, int width) {
   struct ImageFeat result;
   result.center_scale = center_scale;
   int num_channels = 3;
-  // int num_bytes = mat.cols * mat.rows * sizeof(float32_t) * num_channels;
   int num_bytes = sizeof(float32_t) * height * width * num_channels;
   result.rawValues = (float32_t*) malloc(num_bytes);
   memcpy(result.rawValues, mat.data, num_bytes);
@@ -129,8 +124,6 @@ struct CenterScale _get_null_center_scale(struct Bbox bbox) {
   CenterScale result = {
     .center_x = static_cast<float>(w / 2.0),
     .center_y = static_cast<float>(h / 2.0),
-    // .scale_x = 1.0,
-    // .scale_y = 1.0,
     .scale_x = (w / PIXEL_STD) * PADDING,
     .scale_y = (h / PIXEL_STD) * PADDING,
   };
@@ -292,22 +285,3 @@ cv::Mat _normalize(cv::Mat src) {
    );
   return src;
 }
-
-
-
-// int main() {
-//     cv::Mat mat = cv::imread("/Users/astahlman/code/app/ios/GuruTests/pushup.jpg");
-//     print_matrix<uint8_t>("original", mat);
-//     struct RgbImage image;
-//     image.height = mat.rows;
-//     image.width = mat.cols;
-//     
-//     image.rgb = mat.clone().data;
-//     struct Bbox bbox;
-//     bbox.x = 170;
-//     bbox.y = 57;
-//     bbox.w = 883;
-//     bbox.h = 661;
-//     struct ImageFeat feats = do_preprocess(image, bbox);
-//     return 0;
-// }

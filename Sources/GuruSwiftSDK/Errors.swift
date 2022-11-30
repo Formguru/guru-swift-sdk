@@ -13,6 +13,7 @@ public enum InferenceSetupFailed: Error {
 public enum APICallFailed: Error {
   case createVideoFailed(error: String)
   case getOverlaysFailed(error: String)
+  case getOnDeviceModelsFailed(error: String)
   case uploadVideoFailed(error: String)
   case updateAnalysisFailed(error: String)
 }

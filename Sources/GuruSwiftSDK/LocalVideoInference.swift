@@ -112,13 +112,16 @@ public class LocalVideoInference : NSObject {
     }
   }
   
-  public func stop() async throws -> Analysis {
+  private func stopSession() {
     if (session.isRunning) {
       DispatchQueue.global(qos: .userInitiated).async {
         self.session.stopRunning()
       }
     }
-    
+  }
+  
+  public func stop() async throws -> Analysis {
+    stopSession()
     analysisClient!.waitUntilQuiet()
     return try await analysisClient!.flush()!
   }
@@ -150,7 +153,8 @@ public class LocalVideoInference : NSObject {
   
   @available(macOS 12.0, iOS 15.0, tvOS 15.0, watchOS 8.0, *)
   private func ensureModelIsReady() async throws {
-    self.poseModel = try! await self.modelStore.getModel().get()
+    let auth = APIKeyAuth(apiKey: apiKey)
+    self.poseModel = try! await self.modelStore.getModel(auth: auth).get()
   }
   
   private func createVideo(activity: Activity) async throws -> String {
@@ -384,17 +388,13 @@ extension AVCaptureDevice {
 
 extension LocalVideoInference: AVCaptureVideoDataOutputSampleBufferDelegate {
   public func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
-    let start = CFAbsoluteTimeGetCurrent()
     frameIndex += 1
     let thisFrameIndex = frameIndex
     
+    // This takes 5-6ms, might be room for optimization
     let image: UIImage? = bufferToImage(imageBuffer: sampleBuffer)
-    let buildInputDuration = 1000 * (CFAbsoluteTimeGetCurrent() - start)
-    // TODO: debug log
-    print("Build input: \(buildInputDuration) ms")
 
     if (image != nil) {
-      
       DispatchQueue.global(qos: .userInteractive).async {
         let inference = self.updateInference(image: image!, frameIndex: thisFrameIndex)
 
@@ -431,9 +431,6 @@ extension LocalVideoInference: AVCaptureVideoDataOutputSampleBufferDelegate {
       DispatchQueue.main.async {
         self.callback.consumeFrame(frame: image!, inference: inference!)
       }
-      let durationMs = 1000 * (CFAbsoluteTimeGetCurrent() - start)
-      print("Total \(durationMs) ms")
-
     }
       
     if (self.startedAt != nil && Date() > self.startedAt!.addingTimeInterval(self.maxDuration)) {

@@ -16,7 +16,6 @@ let package = Package(
     ],
     dependencies: [
       .package(url: "https://github.com/WeTransfer/Mocker.git", from: "2.5.6"),
-      // .package(url: "https://github.com/marmelroy/Zip.git", .upToNextMinor(from: Version(2, 1, 0)))
       .package(url: "https://github.com/weichsel/ZIPFoundation.git", .upToNextMinor(from: Version(0, 9, 15)))
       
     ],
@@ -38,7 +37,7 @@ let package = Package(
                 .copy("Resources/steph.jpg"),
                 .copy("Resources/VipnasNoPreprocess.mlpackage.zip"),
             ]
-        ),
+        )
     ],
     // TODO: get rid of **/CMakeLists.txt?
     cxxLanguageStandard: .cxx11

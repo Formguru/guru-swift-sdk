@@ -25,10 +25,11 @@ class PoseEstimationTests: XCTestCase {
   
   func testPoseModelReturnsSaneResults() async throws {
     let modelStore = ModelStore()
-    let jpgUrl = Bundle.module.url(forResource: "steph", withExtension: "jpg")!
     let jpgFile = Bundle.module.path(forResource: "steph", ofType: "jpg")!
     let stephCurry = UIImage(contentsOfFile: jpgFile)!
-    let mlModel = try! await modelStore.getModel().get()
+    
+    let apiKey = APIKeyAuth(apiKey: "foo-bar-buzz")
+    let mlModel = try! await modelStore.getModel(auth: apiKey).get()
     let results = inferPose(model: mlModel,
                             img: stephCurry.cgImage!,
                             bbox: [60, 26, 280, 571]  // x, y, w, h
