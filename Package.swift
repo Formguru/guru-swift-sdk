@@ -16,8 +16,10 @@ let package = Package(
     ],
     dependencies: [
       .package(url: "https://github.com/WeTransfer/Mocker.git", from: "2.5.6"),
-      .package(url: "https://github.com/weichsel/ZIPFoundation.git", .upToNextMinor(from: Version(0, 9, 15)))
-      
+      .package(
+        url: "https://github.com/weichsel/ZIPFoundation.git",
+        .upToNextMinor(from: Version(0, 9, 15))
+      )
     ],
     targets: [
         .target(
@@ -34,11 +36,9 @@ let package = Package(
             dependencies: ["GuruSwiftSDK", "Mocker"],
             resources: [
                 .copy("Resources/rick-squat.mp4"),
-                .copy("Resources/steph.jpg"),
-                .copy("Resources/VipnasNoPreprocess.mlpackage.zip"),
+                .copy("Resources/steph.jpg")
             ]
         )
     ],
-    // TODO: get rid of **/CMakeLists.txt?
     cxxLanguageStandard: .cxx11
 )

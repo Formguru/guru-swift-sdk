@@ -21,8 +21,8 @@ public class LocalVideoInference : NSObject {
   
   let session = AVCaptureSession()
   let inferenceLock = NSLock()
-  let modelStore = ModelStore()
   var frameIndex = -1
+  let modelStore = ModelStore()
   var poseModel: MLModel?
   let width = 480.0
   let height = 640.0
@@ -38,8 +38,7 @@ public class LocalVideoInference : NSObject {
               apiKey: String,
               maxDuration: TimeInterval = 60,
               analysisPerSecond: Int = 8,
-              recordTo: URL? = nil,
-              isPreviewEnabled: Bool = false) throws {
+              recordTo: URL? = nil) throws {
     callback = consumer
     self.source = source
     self.apiKey = apiKey
@@ -58,28 +57,13 @@ public class LocalVideoInference : NSObject {
       session.addInput(input)
       
       let output = AVCaptureVideoDataOutput()
-      output.alwaysDiscardsLateVideoFrames = false
+      output.alwaysDiscardsLateVideoFrames = true
       output.videoSettings = [kCVPixelBufferPixelFormatTypeKey as AnyHashable as! String: kCVPixelFormatType_32BGRA]
       output.setSampleBufferDelegate(self, queue: DispatchQueue.main)
       session.addOutput(output)
-      if (isPreviewEnabled) {
-        Task {
-          try! await self.startPreview()
-        }
-      }
     }
     else {
       throw InferenceSetupFailed.cameraNotFound(position: cameraPosition)
-    }
-  }
-  
-  private func startPreview() async throws {
-    if #available(iOS 15, *) {
-      try! await ensureModelIsReady();
-      self.session.startRunning()
-    }
-    else {
-      throw InferenceSetupFailed.iosRequirementUnmet
     }
   }
   
@@ -98,9 +82,7 @@ public class LocalVideoInference : NSObject {
           self.session.addOutput(recordOutput!)
         }
 
-        if (!self.session.isRunning) {
-          self.session.startRunning()
-        }
+        self.session.startRunning()
         
         recordOutput?.startRecording(to: self.recordTo!, recordingDelegate: self)
       }
@@ -112,16 +94,13 @@ public class LocalVideoInference : NSObject {
     }
   }
   
-  private func stopSession() {
+  public func stop() async throws -> Analysis {
     if (session.isRunning) {
       DispatchQueue.global(qos: .userInitiated).async {
         self.session.stopRunning()
       }
     }
-  }
-  
-  public func stop() async throws -> Analysis {
-    stopSession()
+    
     analysisClient!.waitUntilQuiet()
     return try await analysisClient!.flush()!
   }
@@ -194,12 +173,11 @@ public class LocalVideoInference : NSObject {
     
     do {
       let keypoints = try runInference(image: image, box: bbox)
-      let secondsSinceStart = startedAt == nil ? 0 : Date().timeIntervalSinceReferenceDate - startedAt!.timeIntervalSinceReferenceDate
-
+      
       latestInference = FrameInference(
         keypoints: keypoints,
         timestamp: frameTimestamp,
-        secondsSinceStart: secondsSinceStart,
+        secondsSinceStart: frameTimestamp.timeIntervalSinceReferenceDate - startedAt!.timeIntervalSinceReferenceDate,
         frameIndex: frameIndex,
         previousFrame: latestInference
       )
@@ -345,31 +323,26 @@ public class LocalVideoInference : NSObject {
       Int((box.height * height).rounded()),
     ]
     
-    var result = [Int: Keypoint]()
-    if let rawKeypoints = inferPose(model: self.poseModel!, img: image.cgImage!, bbox: bbox) {
+    var keypoints = [Int: Keypoint]()
+    if let rawKeypoints = inferPose(model: self.poseModel!, img: image.cgImage!, bbox: bbox
+    ) {
       for (key, values) in rawKeypoints {
-        result[key] = Keypoint(
+        keypoints[key] = Keypoint(
           x: Double(values[0]),
           y: Double(values[1]),
           score: Double(values[2])
         )
       }
     }
-    return result;
+    return keypoints;
   }
 }
 
 extension AVCaptureDevice {
   func set(frameRate: Double) {
-    let ranges = activeFormat.videoSupportedFrameRateRanges
-    var found = false
-    for range in ranges {
-      if (range.minFrameRate...range.maxFrameRate ~= frameRate) {
-        found = true
-      }
-    }
-    
-    guard found else {
+    guard let range = activeFormat.videoSupportedFrameRateRanges.first,
+          range.minFrameRate...range.maxFrameRate ~= frameRate
+    else {
       print("Requested FPS is not supported by the device's activeFormat !")
       return
     }
@@ -391,13 +364,12 @@ extension LocalVideoInference: AVCaptureVideoDataOutputSampleBufferDelegate {
     frameIndex += 1
     let thisFrameIndex = frameIndex
     
-    // This takes 5-6ms, might be room for optimization
     let image: UIImage? = bufferToImage(imageBuffer: sampleBuffer)
-
+      
     if (image != nil) {
       DispatchQueue.global(qos: .userInteractive).async {
         let inference = self.updateInference(image: image!, frameIndex: thisFrameIndex)
-
+        
         if (inference != nil) {
           Task {
             do {
@@ -418,22 +390,18 @@ extension LocalVideoInference: AVCaptureVideoDataOutputSampleBufferDelegate {
       
       var inference = self.latestInference
       if (inference == nil) {
-        let secondsSinceStart = startedAt == nil ? 0 : Date().timeIntervalSinceReferenceDate - startedAt!.timeIntervalSinceReferenceDate
-        
         inference = FrameInference(
           keypoints: [:],
           timestamp: Date(),
-          secondsSinceStart: secondsSinceStart,
+          secondsSinceStart: Date().timeIntervalSinceReferenceDate - startedAt!.timeIntervalSinceReferenceDate,
           frameIndex: frameIndex,
           previousFrame: nil
         )
       }
-      DispatchQueue.main.async {
-        self.callback.consumeFrame(frame: image!, inference: inference!)
-      }
+      self.callback.consumeFrame(frame: image!, inference: inference!)
     }
       
-    if (self.startedAt != nil && Date() > self.startedAt!.addingTimeInterval(self.maxDuration)) {
+    if (Date() > self.startedAt!.addingTimeInterval(self.maxDuration)) {
       Task {
         try await self.stop()
       }

@@ -14,22 +14,28 @@ import Mocker
 @available(iOS 14.0, *)
 class PoseEstimationTests: XCTestCase {
   
+  let apiKey = APIKeyAuth(apiKey: "foo-bar-buzz")
+  let stephCurry = UIImage(contentsOfFile:  Bundle.module.path(
+    forResource: "steph",
+    ofType: "jpg")!
+  )!
+  
   override func setUp() async throws {
-    let url = URL(string: "https://formguru-datasets.s3.us-west-2.amazonaws.com/on-device/andrew-temp-test/VipnasNoPreprocess.mlpackage.zip")!
-    Mock(url: url,
-         dataType: .zip,
-         statusCode: 200,
-         data: [.get : getMLPackageBytes()]
-    ).register()
+    let modelUri = URL(string: "https://formguru-datasets.s3.us-west-2.amazonaws.com/on-device/swift-sdk-unit-tests/VipnasNoPreprocess.mlpackage.zip"
+    )!
+    expectGetOnDeviceModelsReturns(models: [
+      ModelMetadata(modelId: "123", modelType: .pose, modelUri: modelUri)
+    ])
+
+    // Note: for now we're actually fetching the model from S3
+    // If we decide we'd rather mock it, we'll need to pre-download the
+    // model, add it to the test target's Resource bundle, and uncomment
+    // the following line
+    // expectS3ContainsModel(url: modelUri)
   }
   
   func testPoseModelReturnsSaneResults() async throws {
-    let modelStore = ModelStore()
-    let jpgFile = Bundle.module.path(forResource: "steph", ofType: "jpg")!
-    let stephCurry = UIImage(contentsOfFile: jpgFile)!
-    
-    let apiKey = APIKeyAuth(apiKey: "foo-bar-buzz")
-    let mlModel = try! await modelStore.getModel(auth: apiKey).get()
+    let mlModel = try! await ModelStore().getModel(auth: apiKey).get()
     let results = inferPose(model: mlModel,
                             img: stephCurry.cgImage!,
                             bbox: [60, 26, 280, 571]  // x, y, w, h
@@ -38,7 +44,26 @@ class PoseEstimationTests: XCTestCase {
     XCTAssertLessThan(averageKeypointError(results: results), 30)
   }
   
-  func averageKeypointError(results: Dictionary<Int, [Float]>) -> Double {
+  private func expectS3ContainsModel(url: URL) {
+    Mock(url: url,
+         dataType: .zip,
+         statusCode: 200,
+         data: [.get : getMLPackageBytes()]
+    ).register()
+  }
+  
+  private func expectGetOnDeviceModelsReturns(models: [ModelMetadata]) {
+    let response = ListModelsResponse(iOS: models)
+    let responseBody = try! JSONEncoder().encode(response)
+    Mock(
+      url: URL(string: "https://api.getguru.fitness/mlmodels/ondevice")!,
+      dataType: .json,
+      statusCode: 200,
+      data: [.get : responseBody]
+    ).register()
+  }
+
+  private func averageKeypointError(results: Dictionary<Int, [Float]>) -> Double {
     let trueKeypoints = [
       "nose": (197, 93),
       "left_shoulder": (255, 159),
@@ -75,7 +100,7 @@ class PoseEstimationTests: XCTestCase {
     return meanErr
   }
   
-  func averageScore(results: Dictionary<Int, [Float]>) -> Float {
+  private func averageScore(results: Dictionary<Int, [Float]>) -> Float {
     let scores = results.values.map({ $0[2] })
     let sum = scores.reduce(0.0) { $0 + $1 }
     return sum / Float(scores.count)
