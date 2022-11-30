@@ -99,7 +99,6 @@ final class GuruAPIClientTests: XCTestCase {
     XCTAssertTrue(actualOverlays![OverlayType.skeleton] != nil)
   }
 
-
   func expectS3ReturnsSuccess(onRequest: @escaping (URLRequest) -> Void) -> Void {
     var s3Mock = Mock(url: URL(string: "https://fake-s3.amazonaws.com")!,
                       dataType: .json,
