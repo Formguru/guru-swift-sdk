@@ -17,7 +17,7 @@ final class ModelStoreTests: XCTestCase {
   func testGetOnDeviceModelsReturnsList() async throws {
     let modelUri = URL(string: "http://some-s3-bucket.s3.amazonaws.com")!
     expectGetOnDeviceModelsReturns(models: [ModelMetadata(modelId: "123", modelType: .pose, modelUri: modelUri)])
-    let model = try! await modelStore.fetchCurrentModelMetadata(auth: APIKeyAuth(apiKey: "foo-bar-buzz"))
+    let model = try! await modelStore.fetchCurrentModelMetadata(auth: APIKeyAuth(apiKey: "foo"))
     XCTAssertEqual(model.modelId, "123")
     XCTAssertEqual(model.modelUri, modelUri)
   }
@@ -33,4 +33,16 @@ final class ModelStoreTests: XCTestCase {
     ).register()
   }
   
+  func testFallbackIfFetchingModelsFails() async throws {
+    let modelUri = URL(string: "http://some-s3-bucket.s3.amazonaws.com")!
+    expectGetOnDeviceModelsReturns(models: [ModelMetadata(modelId: "123", modelType: .pose, modelUri: modelUri)])
+    let model = try! await modelStore.getModel(auth: APIKeyAuth(apiKey: "foo")).get()
+    Mock(
+      url: URL(string: "https://api.getguru.fitness/mlmodels/ondevice")!,
+      dataType: .json,
+      statusCode: 401,
+      data: [.get : Data()]
+    ).register()
+    let sameModel = try await ModelStore().getModel(auth: APIKeyAuth(apiKey: "foo")).get()
+  }
 }

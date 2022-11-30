@@ -7,41 +7,12 @@ import Foundation
 
 public typealias VideoId = String
 
-public struct ModelMetadata: Codable {
-  
-  enum ModelType: String, Codable {
-    case pose = "pose"
-  }
-  
-  let modelId: String
-  let modelType: ModelType
-  let modelUri: URL
-}
-
-public struct ListModelsResponse: Codable {
-  let iOS: [ModelMetadata]
-}
-
 public class GuruAPIClient {
 
   let auth: APIAuth
 
   public init(auth: APIAuth) {
     self.auth = auth
-  }
-  
-  public func getOnDeviceModels() async throws -> [ModelMetadata] {
-    var request = URLRequest(url: URL(string: "https://api.getguru.fitness/mlmodels/ondevice")!)
-    request = auth.apply(request: request)
-    let (data, response) = try await URLSession.shared.data(for: request)
-    let httpResponse = (response as? HTTPURLResponse)!
-    guard (httpResponse.statusCode == 200) else {
-      throw APICallFailed.getOnDeviceModelsFailed(error: httpResponse.description)
-    }
-    guard let models: ListModelsResponse = try? JSONDecoder().decode(ListModelsResponse.self, from: data) else {
-      throw APICallFailed.getOnDeviceModelsFailed(error: httpResponse.description)
-    }
-    return models.iOS
   }
 
   public func overlays(videoId: VideoId) async throws -> [OverlayType: URL]? {

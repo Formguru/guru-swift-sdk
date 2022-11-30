@@ -18,6 +18,22 @@ public struct OnDeviceModel: Codable {
   let localPath: URL
 }
 
+
+public struct ModelMetadata: Codable {
+  
+  enum ModelType: String, Codable {
+    case pose = "pose"
+  }
+  
+  let modelId: String
+  let modelType: ModelType
+  let modelUri: URL
+}
+
+public struct ListModelsResponse: Codable {
+  let iOS: [ModelMetadata]
+}
+
 actor ModelStore {
   
   var model: MLModel? = nil
@@ -72,16 +88,26 @@ actor ModelStore {
   }
   
   func fetchCurrentModelMetadata(auth: APIAuth) async throws -> ModelMetadata {
-    let models = try! await GuruAPIClient(auth: auth).getOnDeviceModels()
+    let models = try await getOnDeviceModels(auth: auth)
     return models.first(where: { $0.modelType == .pose })!
   }
   
   private func fetchModel(auth: APIAuth) async -> Result<URL, PoseModelError> {
+    let existingModels = listModels()
     guard let modelMeta = try? await fetchCurrentModelMetadata(auth: auth) else {
-      return .failure(PoseModelError.downloadFailed)
+      if (existingModels.isEmpty) {
+        return .failure(PoseModelError.downloadFailed)
+      } else {
+        let fallback = existingModels.first!.localPath
+        if #available(iOS 14.0, *) {
+          logger.warning("Failed to fetch latest on-device model, falling back to older model at \(fallback)")
+        } else {
+          print("Failed to fetch latest on-device model, falling back to older model at \(fallback)")
+        }
+        return .success(fallback)
+      }
     }
     
-    let existingModels = listModels()
     let cachedModel = existingModels.first(where: {model in
       model.modelId == modelMeta.modelId
     })
@@ -147,4 +173,20 @@ actor ModelStore {
       }
     }
   }
+
+  
+  private func getOnDeviceModels(auth: APIAuth) async throws -> [ModelMetadata] {
+    var request = URLRequest(url: URL(string: "https://api.getguru.fitness/mlmodels/ondevice")!)
+    request = auth.apply(request: request)
+    let (data, response) = try await URLSession.shared.data(for: request)
+    let httpResponse = (response as? HTTPURLResponse)!
+    guard (httpResponse.statusCode == 200) else {
+      throw APICallFailed.getOnDeviceModelsFailed(error: httpResponse.description)
+    }
+    guard let models: ListModelsResponse = try? JSONDecoder().decode(ListModelsResponse.self, from: data) else {
+      throw APICallFailed.getOnDeviceModelsFailed(error: httpResponse.description)
+    }
+    return models.iOS
+  }
+  
 }
