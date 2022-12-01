@@ -12,7 +12,7 @@ let package = Package(
     products: [
         .library(
             name: "GuruSwiftSDK",
-            targets: ["GuruSwiftSDK"]),
+            targets: ["GuruSwiftSDK", "libgurucv"]),
     ],
     dependencies: [
       .package(url: "https://github.com/WeTransfer/Mocker.git", from: "2.5.6"),
@@ -30,7 +30,13 @@ let package = Package(
             ]
         ),
         .target(name: "libgurucv", dependencies: ["opencv2"]),
-        .binaryTarget(name: "opencv2", path: "thirdparty/opencv2.xcframework"),
+        
+        // Note: this is built by thirdparty/build-xcframework.sh
+        .binaryTarget(
+          name: "opencv2",
+          url: "https://formguru-datasets.s3.us-west-2.amazonaws.com/opencv2_ios_builds/opencv2.xcframework-b0dc474160e389b9c9045da5db49d03ae17c6a6b.zip",
+          checksum: "ac7b21a7a3140713f30cf5800b4cabe098db49b367afa6e02edb85191e18870c"
+        ),
         .testTarget(
             name: "GuruSwiftSDKTests",
             dependencies: ["GuruSwiftSDK", "Mocker"],

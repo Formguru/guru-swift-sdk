@@ -60,8 +60,8 @@ const struct ImageFeat do_preprocess(
   cv::Mat m = _preprocess(image, bbox, with_alpha);
   m = _normalize(m);
   m = _hwc_to_chw(m);
-  auto sz_bytes = 3 * HEIGHT * WIDTH * sizeof(float32_t);
-  feat.rawValues = (float32_t*) malloc(sz_bytes);
+  auto sz_bytes = 3 * HEIGHT * WIDTH * sizeof(float_t);
+  feat.rawValues = (float_t*) malloc(sz_bytes);
   memcpy(feat.rawValues, m.data, sz_bytes);
   return feat;
 }
@@ -100,8 +100,8 @@ struct ImageFeat _to_feat(cv::Mat mat, struct CenterScale center_scale, int heig
   struct ImageFeat result;
   result.center_scale = center_scale;
   int num_channels = 3;
-  int num_bytes = sizeof(float32_t) * height * width * num_channels;
-  result.rawValues = (float32_t*) malloc(num_bytes);
+  int num_bytes = sizeof(float_t) * height * width * num_channels;
+  result.rawValues = (float_t*) malloc(num_bytes);
   memcpy(result.rawValues, mat.data, num_bytes);
   return result;
 }
@@ -213,12 +213,12 @@ Point _get_third_Point(const Point a, const Point b) {
 
 cv::Mat _mat_from_Points(Point a, Point b, Point c) {
   cv::Mat m = cv::Mat(3, 2, CV_32F);
-  m.at<float32_t>(0, 0) = a.x;
-  m.at<float32_t>(0, 1) = a.y;
-  m.at<float32_t>(1, 0) = b.x;
-  m.at<float32_t>(1, 1) = b.y;
-  m.at<float32_t>(2, 0) = c.x;
-  m.at<float32_t>(2, 1) = c.y;
+  m.at<float_t>(0, 0) = a.x;
+  m.at<float_t>(0, 1) = a.y;
+  m.at<float_t>(1, 0) = b.x;
+  m.at<float_t>(1, 1) = b.y;
+  m.at<float_t>(2, 0) = c.x;
+  m.at<float_t>(2, 1) = c.y;
   return m;
 }
 
