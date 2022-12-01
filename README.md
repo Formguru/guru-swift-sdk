@@ -165,13 +165,15 @@ iPhone 11 will function, albeit with slower performance.
 
 ## How to build against OpenCV
 
-libgurucv must be linked against OpenCV. You can download the pre-built version
-via the `build-xcframework.sh` script:
+Note: these instructions are for Guru developers only.
+
+Use the `build-xcframework.sh` script to package OpenCV (used by libgurucv).
+Its output will instruct you on how to store the artifact in S3 and update the
+checksum in Package.swift.
 
 ```bash
 cd thirdparty
 ./build-xcframework.sh
-# or to build from source: ./build-xcframework.sh --build-from-source`)
 ```
 
 ## How to run tests
