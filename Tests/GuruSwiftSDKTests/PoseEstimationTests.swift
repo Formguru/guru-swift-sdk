@@ -23,14 +23,17 @@ class PoseEstimationTests: XCTestCase {
   override func setUp() async throws {
     let modelUri = URL(string: "https://formguru-datasets.s3.us-west-2.amazonaws.com/on-device/swift-sdk-unit-tests/VipnasNoPreprocess.mlpackage.zip"
     )!
+
     expectGetOnDeviceModelsReturns(models: [
       ModelMetadata(modelId: "123", modelType: .pose, modelUri: modelUri)
     ])
 
     // Note: for now we're actually fetching the model from S3
+    Mocker.ignore(modelUri)
+    
     // If we decide we'd rather mock it, we'll need to pre-download the
     // model, add it to the test target's Resource bundle, and uncomment
-    // the following line
+    // the following line:
     // expectS3ContainsModel(url: modelUri)
   }
   

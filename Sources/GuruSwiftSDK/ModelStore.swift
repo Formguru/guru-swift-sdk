@@ -36,6 +36,7 @@ public struct ListModelsResponse: Codable {
 
 actor ModelStore {
   
+  let USE_LOCAL_MODEL = false
   var model: MLModel? = nil
   
   private func getModelStoreRoot() -> URL {
@@ -176,6 +177,10 @@ actor ModelStore {
 
   
   private func getOnDeviceModels(auth: APIAuth) async throws -> [ModelMetadata] {
+    if let override = getOnDeviceModelOverride() {
+      return [override]
+    }
+
     var request = URLRequest(url: URL(string: "https://api.getguru.fitness/mlmodels/ondevice")!)
     request = auth.apply(request: request)
     let (data, response) = try await URLSession.shared.data(for: request)
@@ -187,6 +192,17 @@ actor ModelStore {
       throw APICallFailed.getOnDeviceModelsFailed(error: httpResponse.description)
     }
     return models.iOS
+  }
+  
+  private func getOnDeviceModelOverride() -> ModelMetadata? {
+    if USE_LOCAL_MODEL {
+      return ModelMetadata(
+        modelId: "ADDME",
+        modelType: .pose,
+        modelUri: URL(string: "ADDME")!
+      )
+    }
+    return nil
   }
   
 }

@@ -34,8 +34,15 @@ final class ModelStoreTests: XCTestCase {
   }
   
   func testFallbackIfFetchingModelsFails() async throws {
-    let modelUri = URL(string: "http://some-s3-bucket.s3.amazonaws.com")!
-    expectGetOnDeviceModelsReturns(models: [ModelMetadata(modelId: "123", modelType: .pose, modelUri: modelUri)])
+    let modelUri = URL(string: "https://formguru-datasets.s3.us-west-2.amazonaws.com/on-device/swift-sdk-unit-tests/VipnasNoPreprocess.mlpackage.zip"
+    )!
+    expectGetOnDeviceModelsReturns(models: [
+      ModelMetadata(modelId: "123", modelType: .pose, modelUri: modelUri)
+    ])
+
+    // Note: for now we're actually fetching the model from S3
+    Mocker.ignore(modelUri)
+    
     let model = try! await modelStore.getModel(auth: APIKeyAuth(apiKey: "foo")).get()
     Mock(
       url: URL(string: "https://api.getguru.fitness/mlmodels/ondevice")!,
