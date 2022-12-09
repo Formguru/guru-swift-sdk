@@ -162,11 +162,18 @@ It has been tested for performance on iPhone 12 and higher.
 iPhone 11 will function, albeit with slower performance.
 
 # Development
-## How to rebuild generated model classes
-If a new VipnasEndToEnd.mlpackage is available, then from root of package:
+
+## How to build against OpenCV
+
+Note: these instructions are for Guru developers only.
+
+Use the `build-xcframework.sh` script to package OpenCV (used by libgurucv).
+Its output will instruct you on how to store the artifact in S3 and update the
+checksum in Package.swift.
+
 ```bash
-xcrun coremlc compile VipnasEndToEnd.mlpackage .
-xcrun coremlc generate VipnasEndToEnd.mlpackage . --language Swift
+cd thirdparty
+./build-xcframework.sh
 ```
 
 ## How to run tests

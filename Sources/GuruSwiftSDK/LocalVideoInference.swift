@@ -22,7 +22,8 @@ public class LocalVideoInference : NSObject {
   let session = AVCaptureSession()
   let inferenceLock = NSLock()
   var frameIndex = -1
-  var vipnas: AnyObject?
+  let modelStore = ModelStore()
+  var poseModel: MLModel?
   let width = 480.0
   let height = 640.0
   
@@ -68,7 +69,7 @@ public class LocalVideoInference : NSObject {
   
   public func start(activity: Activity) async throws -> String {
     if #available(iOS 15, *) {
-      try! await initVipnas();
+      try! await ensureModelIsReady();
       
       videoId = try await createVideo(activity: activity)
       
@@ -130,17 +131,9 @@ public class LocalVideoInference : NSObject {
   }
   
   @available(macOS 12.0, iOS 15.0, tvOS 15.0, watchOS 8.0, *)
-  private func initVipnas() async throws {
-    let fileManager = FileManager.default
-    let appSupportURL = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-    let permanentURL = appSupportURL.appendingPathComponent("GuruOnDeviceModel")
-    downloadModelFile(fileManager: fileManager, fileSubUrl: "coremldata.bin", modelLocation: permanentURL)
-    downloadModelFile(fileManager: fileManager, fileSubUrl: "metadata.json", modelLocation: permanentURL)
-    downloadModelFile(fileManager: fileManager, fileSubUrl: "model.mil", modelLocation: permanentURL)
-    downloadModelFile(fileManager: fileManager, fileSubUrl: "analytics/coremldata.bin", modelLocation: permanentURL)
-    downloadModelFile(fileManager: fileManager, fileSubUrl: "weights/weight.bin", modelLocation: permanentURL)
-    
-    self.vipnas = try! VipnasEndToEnd(contentsOf: URL.init(fileURLWithPath: permanentURL.path))
+  private func ensureModelIsReady() async throws {
+    let auth = APIKeyAuth(apiKey: apiKey)
+    self.poseModel = try! await self.modelStore.getModel(auth: auth).get()
   }
   
   private func createVideo(activity: Activity) async throws -> String {
@@ -165,33 +158,6 @@ public class LocalVideoInference : NSObject {
     }
     else {
       throw APICallFailed.createVideoFailed(error: String(decoding: data, as: UTF8.self))
-    }
-  }
-  
-  private func downloadModelFile(fileManager: FileManager, fileSubUrl: String, modelLocation: URL) {
-    let permanentLocation = modelLocation.appendingPathComponent(fileSubUrl)
-    if (!fileManager.fileExists(atPath: permanentLocation.path)) {
-      print("Downloading \(fileSubUrl)")
-      try! fileManager.createDirectory(at: permanentLocation.deletingLastPathComponent(), withIntermediateDirectories: true)
-      
-      let group = DispatchGroup()
-      group.enter()
-      
-      let url = URL(string: "https://formguru-datasets.s3.us-west-2.amazonaws.com/on-device/20220920/VipnasEndToEnd.mlmodelc/" + fileSubUrl)!
-      let downloadTask = URLSession.shared.downloadTask(with: url) {
-        urlOrNil, responseOrNil, errorOrNil in
-        
-        guard let downloadedFile = urlOrNil else { return }
-        do {
-            _ = try FileManager.default.moveItem(at: downloadedFile, to: permanentLocation)
-        } catch {
-            print ("file error: \(error)")
-        }
-        group.leave()
-      }
-
-      downloadTask.resume()
-      group.wait()
     }
   }
   
@@ -350,53 +316,25 @@ public class LocalVideoInference : NSObject {
     assert(image.size.height == height);
     assert(image.size.width == width);
     
-    let rawKeypoints = try runVipnasInference(
-      image: image.cgImage!,
-      box: box
-    )
+    let bbox: [Int] = [
+      Int((box.minX * width).rounded()),
+      Int((box.minY * height).rounded()),
+      Int((box.width * width).rounded()),
+      Int((box.height * height).rounded()),
+    ]
+    
     var keypoints = [Int: Keypoint]()
-    for (key, values) in rawKeypoints {
-      keypoints[key] = Keypoint(
-        x: values[0],
-        y: values[1],
-        score: values[2]
-      )
+    if let rawKeypoints = inferPose(model: self.poseModel!, img: image.cgImage!, bbox: bbox
+    ) {
+      for (key, values) in rawKeypoints {
+        keypoints[key] = Keypoint(
+          x: Double(values[0]),
+          y: Double(values[1]),
+          score: Double(values[2])
+        )
+      }
     }
     return keypoints;
-  }
-  
-  let USE_CPU_ONLY = false
-  private func runVipnasInference(image: CGImage, box: CGRect) throws -> [Int: [Double]] {
-    if #available(iOS 15, *) {
-      let bboxFeat = try! MLMultiArray(shape: [1, 4], dataType: .float32);
-      bboxFeat[0] = (box.minX * Double(image.width)).rounded() as NSNumber
-      bboxFeat[1] = (box.minY * Double(image.height)).rounded() as NSNumber
-      bboxFeat[2] = (box.width * Double(image.width)).rounded() as NSNumber
-      bboxFeat[3] = (box.height * Double(image.height)).rounded() as NSNumber
-      let input = try! VipnasEndToEndInput(image_nchwWith: image, bbox_xywh: bboxFeat)
-      
-      let opt = MLPredictionOptions()
-      opt.usesCPUOnly = USE_CPU_ONLY
-      
-      let output = try (vipnas as! VipnasEndToEnd).prediction(input: input, options: opt)
-      let K = 17
-      
-      var keypoints = Dictionary<Int, [Double]>()
-      for k in 0..<K {
-        let x = output.keypoints[[0, k, 0] as [NSNumber]]
-        let y = output.keypoints[[0, k, 1] as [NSNumber]]
-        let score = output.scores[[0, k] as [NSNumber]]
-        keypoints[k] = [x.doubleValue / width, y.doubleValue / height, score.doubleValue]
-      }
-      return keypoints
-    }
-    else {
-      throw InferenceSetupFailed.iosRequirementUnmet
-    }
-  }
-  
-  private func updateAnalysis(inference: FrameInference) {
-    
   }
 }
 
