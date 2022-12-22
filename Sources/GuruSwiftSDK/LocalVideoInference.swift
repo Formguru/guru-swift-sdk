@@ -101,8 +101,13 @@ public class LocalVideoInference : NSObject {
       }
     }
     
-    analysisClient!.waitUntilQuiet()
-    return try await analysisClient!.flush()!
+    if (analysisClient == nil) {
+      return Analysis(movement: nil, reps: [])
+    }
+    else {
+      analysisClient!.waitUntilQuiet()
+      return try await analysisClient!.flush()!
+    }
   }
 
   public func uploadVideo() async throws -> UploadResult {
