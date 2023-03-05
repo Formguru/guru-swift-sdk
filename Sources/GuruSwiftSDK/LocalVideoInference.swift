@@ -18,6 +18,7 @@ public class LocalVideoInference : NSObject {
   let maxDuration: TimeInterval
   let analysisPerSecond: Int
   let recordTo: URL?
+  let cameraPosition: AVCaptureDevice.Position
   
   let session = AVCaptureSession()
   let inferenceLock = NSLock()
@@ -45,6 +46,7 @@ public class LocalVideoInference : NSObject {
     self.maxDuration = maxDuration
     self.analysisPerSecond = analysisPerSecond
     self.recordTo = recordTo
+    self.cameraPosition = cameraPosition
     
     super.init()
     
@@ -212,7 +214,7 @@ public class LocalVideoInference : NSObject {
     guard let cgImage = context.makeImage() else {
       return nil
     }
-    let image = UIImage(cgImage: cgImage, scale: 1, orientation: .up)
+    let image = UIImage(cgImage: cgImage, scale: 1, orientation: self.cameraPosition == .front ? .downMirrored : .up)
     CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly)
     
     return rotateImage(image: image, radians: .pi/2)
