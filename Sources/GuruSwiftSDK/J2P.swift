@@ -72,9 +72,21 @@ public struct Keypoint: Equatable {
   public let x: Double
   public let y: Double
   public let score: Double
-  
+
   static public func ==(lhs: Keypoint, rhs: Keypoint) -> Bool {
     return lhs.x == rhs.x && lhs.y == rhs.y && lhs.score == rhs.score
+  }
+
+  public func angleBetweenRadians(center: Keypoint, to: Keypoint, clockwise: Bool) -> Double {
+    let centerTo = vectorBetweenKeypoints(from: center, to: to)
+    let centerFrom = vectorBetweenKeypoints(from: center, to: self)
+
+    if (clockwise) {
+      return angleBetweenVectors(v1: centerTo, v2: centerFrom)
+    }
+    else {
+      return angleBetweenVectors(v1: centerFrom, v2: centerTo)
+    }
   }
 }
 

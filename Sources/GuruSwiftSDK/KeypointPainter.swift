@@ -90,31 +90,25 @@ public class KeypointPainter {
     backgroundColor: UIColor = UIColor.blue,
     foregroundColor: UIColor = UIColor.white,
     fontSize: Int = 48) -> KeypointPainter {
-    let centerTo = vector(from: center, to: to)
-    let centerFrom = vector(from: center, to: from)
+    let centerTo = vectorBetweenKeypoints(from: center, to: to)
+    let centerFrom = vectorBetweenKeypoints(from: center, to: from)
     let path = UIBezierPath()
     path.move(to: framePosition(center))
     path.addArc(
       withCenter: framePosition(center),
       radius: vectorLength(CGVector(dx: centerTo.dx * self.width, dy: centerTo.dy * self.height)),
-      startAngle: angleBetween(v1: CGVector(dx: 1.0, dy: 0.0), v2: normalizeVector(centerTo)),
-      endAngle: angleBetween(v1: CGVector(dx: 1.0, dy: 0.0), v2: normalizeVector(centerFrom)),
+      startAngle: angleBetweenVectors(v1: CGVector(dx: 1.0, dy: 0.0), v2: normalizeVector(centerTo)),
+      endAngle: angleBetweenVectors(v1: CGVector(dx: 1.0, dy: 0.0), v2: normalizeVector(centerFrom)),
       clockwise: clockwise
     )
     path.close()
     backgroundColor.setFill()
     path.fill()
     
-    var angleDegrees: Double?
-    if (clockwise) {
-      angleDegrees = angleBetween(v1: centerTo, v2: centerFrom)
-    }
-    else {
-      angleDegrees = angleBetween(v1: centerFrom, v2: centerTo)
-    }
+    let angleDegrees = from.angleBetweenRadians(center: center, to: to, clockwise: clockwise)
     paintText(
       position: framePosition(center) + CGPoint(x: 0, y: 40),
-      text: String(abs(Int(rad2deg(angleDegrees!)))) + "º",
+      text: String(abs(Int(rad2deg(angleDegrees)))) + "º",
       color: foregroundColor,
       fontSize: fontSize,
       rightOfPosition: clockwise
@@ -157,37 +151,8 @@ public class KeypointPainter {
     return self
   }
   
-  fileprivate func angleBetween(v1: CGVector, v2: CGVector) -> Double {
-    var angleRadians = atan2(v2.dy, v2.dx) - atan2(v1.dy, v1.dx)
-    if angleRadians < 0 {
-      angleRadians += 2 * .pi
-    }
-    return angleRadians
-  }
-  
   fileprivate func framePosition(_ keypoint: Keypoint) -> CGPoint {
     return CGPoint(x: keypoint.x * self.width, y: keypoint.y * self.height)
-  }
-  
-  fileprivate func normalizeVector(_ vector: CGVector) -> CGVector {
-    let vectorLength = vectorLength(vector)
-    return CGVector(dx: vector.dx / vectorLength, dy: vector.dy / vectorLength)
-  }
-  
-  fileprivate func rad2deg(_ number: Double) -> Double {
-      return number * 180 / .pi
-  }
-  
-  fileprivate func vectorLength(_ vector: CGVector) -> Double {
-    return sqrt(pow(vector.dx, 2) + pow(vector.dy, 2))
-  }
-  
-  fileprivate func toVector(_ keypoint: Keypoint) -> CGVector {
-    return CGVector(dx: keypoint.x, dy: keypoint.y)
-  }
-  
-  fileprivate func vector(from: Keypoint, to: Keypoint) -> CGVector {
-    return CGVector(dx: to.x - from.x, dy: to.y - from.y)
   }
 }
 
