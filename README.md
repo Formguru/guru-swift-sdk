@@ -51,36 +51,31 @@ extension InferenceViewController: InferenceConsumer {
     // TODO: Implement this function.
   }
   
-  func consumeFrame(frame: UIImage, inference: FrameInference?) {
-    if (inference != nil) {
-      let painter = InferencePainter(frame: frame, inference: inference!)
-        .paintLandmarkConnector(from: InferenceLandmark.leftShoulder, to: InferenceLandmark.leftElbow)
-        .paintLandmarkConnector(from: InferenceLandmark.leftElbow, to: InferenceLandmark.leftWrist)
-        .paintLandmarkConnector(from: InferenceLandmark.leftShoulder, to: InferenceLandmark.leftHip)
-        .paintLandmarkConnector(from: InferenceLandmark.leftHip, to: InferenceLandmark.leftKnee)
-        .paintLandmarkConnector(from: InferenceLandmark.leftKnee, to: InferenceLandmark.leftAnkle)
-        .paintLandmarkConnector(from: InferenceLandmark.rightShoulder, to: InferenceLandmark.rightElbow)
-        .paintLandmarkConnector(from: InferenceLandmark.rightElbow, to: InferenceLandmark.rightWrist)
-        .paintLandmarkConnector(from: InferenceLandmark.rightShoulder, to: InferenceLandmark.rightHip)
-        .paintLandmarkConnector(from: InferenceLandmark.rightHip, to: InferenceLandmark.rightKnee)
-        .paintLandmarkConnector(from: InferenceLandmark.rightKnee, to: InferenceLandmark.rightAnkle)
-      
-      let userFacing = inference!.userFacing()
-      if (userFacing != UserFacing.other) {
-        userLastFacing = userFacing
-      }
-      if (userLastFacing == UserFacing.left) {
-        painter.paintLandmarkAngle(center: InferenceLandmark.rightShoulder, from: InferenceLandmark.rightHip, to: InferenceLandmark.rightElbow, clockwise: true)
-      }
-      else if (userLastFacing == UserFacing.right) {
-        painter.paintLandmarkAngle(center: InferenceLandmark.leftShoulder, from: InferenceLandmark.leftHip, to: InferenceLandmark.leftElbow, clockwise: false)
-      }
-      
-      imageView.image = painter.finish()
+  func consumeFrame(frame: UIImage, inference: FrameInference) {
+    let painter = InferencePainter(frame: frame, inference: inference)
+      .paintLandmarkConnector(from: InferenceLandmark.leftShoulder, to: InferenceLandmark.leftElbow)
+      .paintLandmarkConnector(from: InferenceLandmark.leftElbow, to: InferenceLandmark.leftWrist)
+      .paintLandmarkConnector(from: InferenceLandmark.leftShoulder, to: InferenceLandmark.leftHip)
+      .paintLandmarkConnector(from: InferenceLandmark.leftHip, to: InferenceLandmark.leftKnee)
+      .paintLandmarkConnector(from: InferenceLandmark.leftKnee, to: InferenceLandmark.leftAnkle)
+      .paintLandmarkConnector(from: InferenceLandmark.rightShoulder, to: InferenceLandmark.rightElbow)
+      .paintLandmarkConnector(from: InferenceLandmark.rightElbow, to: InferenceLandmark.rightWrist)
+      .paintLandmarkConnector(from: InferenceLandmark.rightShoulder, to: InferenceLandmark.rightHip)
+      .paintLandmarkConnector(from: InferenceLandmark.rightHip, to: InferenceLandmark.rightKnee)
+      .paintLandmarkConnector(from: InferenceLandmark.rightKnee, to: InferenceLandmark.rightAnkle)
+    
+    let userFacing = inference.userFacing()
+    if (userFacing != UserFacing.other) {
+      userLastFacing = userFacing
     }
-    else {
-      imageView.image = frame
+    if (userLastFacing == UserFacing.left) {
+      painter.paintLandmarkAngle(center: InferenceLandmark.rightShoulder, from: InferenceLandmark.rightHip, to: InferenceLandmark.rightElbow, clockwise: true)
     }
+    else if (userLastFacing == UserFacing.right) {
+      painter.paintLandmarkAngle(center: InferenceLandmark.leftShoulder, from: InferenceLandmark.leftHip, to: InferenceLandmark.leftElbow, clockwise: false)
+    }
+    
+    imageView.image = painter.finish()
   }
 }
 ```
