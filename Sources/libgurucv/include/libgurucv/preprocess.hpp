@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <math.h>
 #include <stdbool.h>
+#include <opencv2/core.hpp>
 
 #define DEBUG 0
 
@@ -47,6 +48,24 @@ const struct RgbImage do_preprocess_as_img(struct RgbImage, struct Bbox);
 struct CenterScale _get_center_scale(struct Bbox bbox);
 
 int test_preprocess_steph();
+
+class PreprocessedImage {
+public:
+    cv::Mat bitmap;
+    cv::Mat feats;
+    float scale;
+    float xPad;
+    float yPad;
+    int xOffset;
+    int yOffset;
+    int originalWidth;
+    int originalHeight;
+
+    PreprocessedImage(cv::Mat bitmap_, cv::Mat feats_, float scale_, float xPad_, float yPad_, int xOffset_, int yOffset_, int originalWidth_, int originalHeight_)
+            : bitmap(bitmap_), feats(feats_), scale(scale_), xPad(xPad_), yPad(yPad_), xOffset(xOffset_), yOffset(yOffset_), originalWidth(originalWidth_), originalHeight(originalHeight_) {}
+};
+
+PreprocessedImage preprocess(cv::Mat image, int dest_width, int dest_height, cv::Rect bounding_box);
 
 #ifdef __cplusplus
 }
