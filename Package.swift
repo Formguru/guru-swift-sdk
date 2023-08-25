@@ -24,19 +24,22 @@ let package = Package(
     targets: [
         .target(
             name: "GuruSwiftSDK",
-            dependencies: ["libgurucv", "ZIPFoundation"],
+            dependencies: ["libgurucv", "ZIPFoundation", "C"],
             resources: [
               .process("Resources")
             ]
         ),
         .target(name: "libgurucv", dependencies: ["opencv2"]),
-        
-        // Note: this is built by thirdparty/build-xcframework.sh
-        .binaryTarget(
-          name: "opencv2",
-          url: "https://formguru-datasets.s3.us-west-2.amazonaws.com/opencv2_ios_builds/opencv2.xcframework-b0dc474160e389b9c9045da5db49d03ae17c6a6b.zip",
-          checksum: "ac7b21a7a3140713f30cf5800b4cabe098db49b367afa6e02edb85191e18870c"
+        .target(
+          name: "C",
+          dependencies: ["GuruEngine", "opencv2", "quickjs", "onnxruntime"],
+          path: "Sources/C",
+          linkerSettings: [LinkerSetting.linkedLibrary("c++")]
         ),
+        .binaryTarget(name: "GuruEngine", path: "Modules/GuruEngine.xcframework"),
+        .binaryTarget(name: "quickjs", path: "Modules/quickjs.xcframework"),
+        .binaryTarget(name: "onnxruntime", path: "Modules/onnxruntime.xcframework"),
+        .binaryTarget(name: "opencv2", path: "Modules/opencv2.xcframework"),
         .testTarget(
             name: "GuruSwiftSDKTests",
             dependencies: ["GuruSwiftSDK", "Mocker"],

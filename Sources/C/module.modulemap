@@ -1,0 +1,6 @@
+# TODO: can we get rid of this now?
+module C {
+  header "bridge.h"
+  link "c++"
+  export *
+}
