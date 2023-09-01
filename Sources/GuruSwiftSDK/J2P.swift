@@ -72,6 +72,12 @@ public struct Keypoint: Equatable {
   public let x: Double
   public let y: Double
   public let score: Double
+  
+  public init(x: Double, y: Double, score: Double = 1.0) {
+    self.x = x
+    self.y = y
+    self.score = score
+  }
 
   static public func ==(lhs: Keypoint, rhs: Keypoint) -> Bool {
     return lhs.x == rhs.x && lhs.y == rhs.y && lhs.score == rhs.score
@@ -87,6 +93,10 @@ public struct Keypoint: Equatable {
     else {
       return angleBetweenVectors(v1: centerFrom, v2: centerTo)
     }
+  }
+  
+  public func toScreenPoint(width: CGFloat, height: CGFloat) -> CGPoint {
+    return CGPoint(x: self.x * width, y: self.y * height)
   }
 }
 

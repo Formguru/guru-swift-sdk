@@ -21,7 +21,7 @@ public class GuruEngine {
     })
   }
   
-  public func processFrame(image: UIImage) {
+  public func processFrame(image: UIImage) -> [String: Any] {
     var rgbImage = self.toRgbImage(image: image)
     defer { rgbImage.data.deallocate() }
     let result = withUnsafeMutablePointer(to: &rgbImage) { imagePtr in
@@ -31,10 +31,11 @@ public class GuruEngine {
       }
     }
     
-    if (result != 0) {
-      // FIXME: how should we handle this?
-      fatalError("Fatal error in processing frame");
-    }
+    let jsonResult = try! JSONSerialization.jsonObject(
+      with: String(cString: result!).data(using: .utf8)!
+    ) as! [String: Any]
+    
+    return jsonResult
   }
   
   private func pixelsRGB(img: CGImage) -> UnsafeMutablePointer<UInt8> {
