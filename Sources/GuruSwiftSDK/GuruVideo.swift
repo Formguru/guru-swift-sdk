@@ -7,13 +7,18 @@ public class GuruVideo {
   var schema: [String: Any]!
   var guruEngine: GuruEngine!
   let inferenceLock = NSLock()
-  var latestInference: GuruAnalysis = GuruAnalysis(result: [:])
+  var previousInferences: [Any] = []
+  var lastAnalysis: GuruAnalysis?
+  var analyzeJSContext: JSContext!
+  var renderJSContext: JSContext!
   
   public init(apiKey: String, schemaId: String) async throws {
     self.apiKey = apiKey
     
     self.schema = try await self.getSchema(schemaId: schemaId)
     self.guruEngine = GuruEngine(userCode: self.schema["inferenceCode"] as! String)
+    self.analyzeJSContext = self.initAnalyzeJSContext()
+    self.renderJSContext = self.initRenderJSContext()
   }
   
   public func finish() {
@@ -22,20 +27,26 @@ public class GuruVideo {
   
   public func newFrame(frame: UIImage) -> GuruAnalysis {
     if (!inferenceLock.try()) {
-      return latestInference
+      if (lastAnalysis == nil) {
+        return GuruAnalysis(result: nil, processResult: [:])
+      }
+      else {
+        return lastAnalysis!
+      }
     }
     defer { self.inferenceLock.unlock() }
 
-    let engineResult = self.guruEngine.processFrame(image: frame)
-    return GuruAnalysis(result: engineResult)
+    let inferenceResult = self.guruEngine.processFrame(image: frame)
+    
+    self.previousInferences.append(inferenceResult)
+    let analysisResult = self.analyze(previousInferences)
+    let analysis = GuruAnalysis(result: analysisResult, processResult: inferenceResult)
+    
+    self.lastAnalysis = analysis
+    return analysis
   }
   
   public func renderFrame(frame: UIImage, analysis: GuruAnalysis) -> UIImage {
-    let context = JSContext()!
-    context.exceptionHandler = {context, exception in
-      print("Exception: \(String(describing: exception))")
-    }
-    
     let painter = AnalysisPainter(frame: frame)
     
     let drawBoundingBox: @convention(block) ([String: Any], [String: Int], Double) -> Bool = { object, color, width in
@@ -46,7 +57,7 @@ public class GuruVideo {
       )
       return true
     }
-    context.setObject(drawBoundingBox, forKeyedSubscript: "drawBoundingBox" as NSString)
+    self.renderJSContext.setObject(drawBoundingBox, forKeyedSubscript: "drawBoundingBox" as NSString)
     let drawSkeleton: @convention(block) ([String: Any], [String: Int], [String: Int], Double, Double) -> Bool = { object, lineColor, keypointColor, lineWidth, keypointRadius in
       painter.skeleton(
         keypoints: object["keypoints"] as! [String: [String: Double]],
@@ -57,7 +68,78 @@ public class GuruVideo {
       )
       return true
     }
-    context.setObject(drawSkeleton, forKeyedSubscript: "drawSkeleton" as NSString)
+    self.renderJSContext.setObject(drawSkeleton, forKeyedSubscript: "drawSkeleton" as NSString)
+
+    let render = self.renderJSContext.objectForKeyedSubscript("invoke")
+    render!.call(withArguments: [analysis.processResult])
+    
+    return painter.finish()
+  }
+  
+  private func analyze(_ inferenceResults: [Any]) -> JSValue? {
+    var analysisResult: JSValue? = nil
+    let analysisFinished: @convention(block) (JSValue?) -> Bool = { result in
+      analysisResult = result
+      return true
+    }
+    self.analyzeJSContext.setObject(analysisFinished, forKeyedSubscript: "analysisFinished" as NSString)
+    
+    let render = self.analyzeJSContext.objectForKeyedSubscript("invoke")
+    render!.call(withArguments: [inferenceResults])
+    
+    return analysisResult
+  }
+  
+  private func getSchema(schemaId: String) async throws -> [String: Any] {
+    var request = URLRequest(url: URL(string: "https://api.getguru.fitness/schemas/\(schemaId)")!)
+    request.setValue(self.apiKey, forHTTPHeaderField: "x-api-key")
+
+    do {
+      let (data, response) = try await URLSession.shared.data(for: request)
+
+      if ((response as? HTTPURLResponse)!.statusCode == 200) {
+        return try! JSONSerialization.jsonObject(with: data) as! [String: Any]
+      }
+      else {
+        throw APICallFailed.getSchemaFailed(error: String(decoding: data, as: UTF8.self))
+      }
+    }
+    catch let error as NSError {
+      throw APICallFailed.getSchemaFailed(error: error.localizedDescription)
+    }
+  }
+  
+  private func initAnalyzeJSContext() -> JSContext {
+    let context = JSContext()!
+    context.exceptionHandler = {context, exception in
+      print("Analysis exception: \(String(describing: exception))")
+    }
+
+    let log: @convention(block) (String) -> Bool = { message in
+      print(message)
+      return true
+    }
+    context.setObject(log, forKeyedSubscript: "log" as NSString)
+    
+    let code = """
+\(self.schema["analyzeVideoCode"] as! String)
+
+function invoke(frameResults) {
+  console.log = log;
+  analyzeVideo(frameResults).then(analysisFinished);
+}
+"""
+    context.evaluateScript(code)
+    
+    return context;
+  }
+  
+  private func initRenderJSContext() -> JSContext {
+    let context = JSContext()!
+    context.exceptionHandler = {context, exception in
+      print("Rendering exception: \(String(describing: exception))")
+    }
+
     let log: @convention(block) (String) -> Bool = { message in
       print(message)
       return true
@@ -88,28 +170,7 @@ function invoke(processResult) {
 }
 """
     context.evaluateScript(code)
-    let render = context.objectForKeyedSubscript("invoke")
-    render!.call(withArguments: [analysis.result])
     
-    return painter.finish()
-  }
-  
-  private func getSchema(schemaId: String) async throws -> [String: Any] {
-    var request = URLRequest(url: URL(string: "https://api.getguru.fitness/schemas/\(schemaId)")!)
-    request.setValue(self.apiKey, forHTTPHeaderField: "x-api-key")
-
-    do {
-      let (data, response) = try await URLSession.shared.data(for: request)
-
-      if ((response as? HTTPURLResponse)!.statusCode == 200) {
-        return try! JSONSerialization.jsonObject(with: data) as! [String: Any]
-      }
-      else {
-        throw APICallFailed.getSchemaFailed(error: String(decoding: data, as: UTF8.self))
-      }
-    }
-    catch let error as NSError {
-      throw APICallFailed.getSchemaFailed(error: error.localizedDescription)
-    }
+    return context;
   }
 }

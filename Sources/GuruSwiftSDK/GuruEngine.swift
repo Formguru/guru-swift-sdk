@@ -21,7 +21,7 @@ public class GuruEngine {
     })
   }
   
-  public func processFrame(image: UIImage) -> [String: Any] {
+  public func processFrame(image: UIImage) -> Any {
     var rgbImage = self.toRgbImage(image: image)
     defer { rgbImage.data.deallocate() }
     let result = withUnsafeMutablePointer(to: &rgbImage) { imagePtr in
@@ -33,7 +33,7 @@ public class GuruEngine {
     
     let jsonResult = try! JSONSerialization.jsonObject(
       with: String(cString: result!).data(using: .utf8)!
-    ) as! [String: Any]
+    )
     
     return jsonResult
   }

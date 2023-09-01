@@ -1,9 +1,12 @@
 import Foundation
+import JavaScriptCore
 
 public struct GuruAnalysis {
-  public init(result: [String: Any]) {
-    self.result = result
-  }
+  public let result: JSValue?
+  public let processResult: Any
   
-  public let result: [String: Any]
+  public init(result: JSValue?, processResult: Any) {
+    self.result = result
+    self.processResult = processResult
+  }
 }
