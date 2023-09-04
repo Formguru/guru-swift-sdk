@@ -16,7 +16,7 @@ public class GuruVideo {
     self.apiKey = apiKey
     
     self.schema = try await self.getSchema(schemaId: schemaId)
-    self.guruEngine = GuruEngine(userCode: self.schema["inferenceCode"] as! String)
+    self.guruEngine = await GuruEngine(apiKey: apiKey, userCode: self.schema["inferenceCode"] as! String)
     self.analyzeJSContext = self.initAnalyzeJSContext()
     self.renderJSContext = self.initRenderJSContext()
   }

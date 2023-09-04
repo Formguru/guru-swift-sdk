@@ -5,15 +5,14 @@ import UIKit
 
 public class GuruEngine {
   
-  let onnxUrl = Bundle.module.path(forResource: "vipnas", ofType: "onnx")
+  let modelStore = ModelStore()
 
-  public init(userCode: String) {    
-    if !(FileManager().fileExists(atPath: onnxUrl!)) {
-      fatalError("ONNX model does not exist")
-    }
+  public init(apiKey: String, userCode: String) async {
+    let auth = APIKeyAuth(apiKey: apiKey)
+    let poseModel = try! await self.modelStore.getModel(auth: auth, type: ModelMetadata.ModelType.pose).get()
 
     userCode.withCString({ userCodePtr in
-      onnxUrl!.withCString({ filePathPtr in
+      poseModel.path.withCString({ filePathPtr in
         if (C.init_engine(UnsafeMutablePointer(mutating: userCodePtr), UnsafeMutablePointer(mutating: filePathPtr)) != 0) {
           fatalError("Failed to initialize the engine");
         }

@@ -4,7 +4,6 @@
  */
 
 import Foundation
-import CoreML
 import os
 
 @available(iOS 14.0, *)
@@ -22,6 +21,8 @@ public struct OnDeviceModel: Codable {
 public struct ModelMetadata: Codable {
   
   enum ModelType: String, Codable {
+    case object = "object"
+    case person = "person"
     case pose = "pose"
   }
   
@@ -37,7 +38,20 @@ public struct ListModelsResponse: Codable {
 actor ModelStore {
   
   let USE_LOCAL_MODEL = false
-  var model: MLModel? = nil
+  var model: URL? = nil
+  
+  public func getModel(auth: APIAuth, type: ModelMetadata.ModelType) async -> Result<URL, PoseModelError> {
+    if (self.model == nil) {
+      let result = await doInitModel(auth: auth, type: type)
+      switch result {
+      case .success(let model):
+        self.model = model
+      case .failure(let err):
+        return .failure(err)
+      }
+    }
+    return .success(self.model!)
+  }
   
   private func getModelStoreRoot() -> URL {
     let fm = FileManager.default
@@ -49,13 +63,13 @@ actor ModelStore {
     return rootUrl
   }
   
-  private func listModels() -> [OnDeviceModel] {
+  private func listLocalModels() -> [OnDeviceModel] {
     let fm = FileManager.default
     let root = getModelStoreRoot()
     let files = try! fm.contentsOfDirectory(atPath: root.path)
     var results: [OnDeviceModel] = []
     for file in files {
-      if file.hasSuffix(".mlmodelc") {
+      if file.hasSuffix(".onnx") {
         let url = URL(string: file)!
         let modelId = file.prefix(file.count - url.pathExtension.count - 1)
         results.append(OnDeviceModel(modelId: String(modelId), localPath: root.appendingPathComponent(file)))
@@ -64,17 +78,21 @@ actor ModelStore {
     return results
   }
   
-  private func downloadFile(url: URL) async throws -> URL {
+  private func downloadModel(metadata: ModelMetadata) async throws -> URL {
+    if #available(iOS 14.0, *) {
+      logger.info("Downloading model from \(metadata.modelUri.absoluteString)")
+    }
+    
     let rootUrl = getModelStoreRoot()
     return try await withCheckedThrowingContinuation({ continuation in
-      URLSession.shared.downloadTask(with: url, completionHandler: {
+      URLSession.shared.downloadTask(with: metadata.modelUri, completionHandler: {
         urlOrNil, responseOrNil, errorOrNil in
         let fm = FileManager.default
         
         if let err = errorOrNil {
           continuation.resume(throwing: err)
         } else if let tmpUrl = urlOrNil {
-          let outputUrl = rootUrl.appendingPathComponent(url.lastPathComponent)
+          let outputUrl = rootUrl.appendingPathComponent("\(metadata.modelId).\(metadata.modelUri.pathExtension)")
           if fm.fileExists(atPath: outputUrl.path) {
             try! fm.removeItem(at: outputUrl)
           }
@@ -88,18 +106,18 @@ actor ModelStore {
     })
   }
   
-  func fetchCurrentModelMetadata(auth: APIAuth) async throws -> ModelMetadata {
+  private func fetchLatestModelMetadata(auth: APIAuth, type: ModelMetadata.ModelType) async throws -> ModelMetadata {
     let models = try await getOnDeviceModels(auth: auth)
-    return models.first(where: { $0.modelType == .pose })!
+    return models.first(where: { $0.modelType == type })!
   }
   
-  private func fetchModel(auth: APIAuth) async -> Result<URL, PoseModelError> {
-    let existingModels = listModels()
-    guard let modelMeta = try? await fetchCurrentModelMetadata(auth: auth) else {
-      if (existingModels.isEmpty) {
+  private func fetchModel(auth: APIAuth, type: ModelMetadata.ModelType) async -> Result<URL, PoseModelError> {
+    let localModels = listLocalModels()
+    guard let latestModelMetadata = try? await fetchLatestModelMetadata(auth: auth, type: type) else {
+      if (localModels.isEmpty) {
         return .failure(PoseModelError.downloadFailed)
       } else {
-        let fallback = existingModels.first!.localPath
+        let fallback = localModels.first!.localPath
         if #available(iOS 14.0, *) {
           logger.warning("Failed to fetch latest on-device model, falling back to older model at \(fallback)")
         } else {
@@ -108,80 +126,39 @@ actor ModelStore {
         return .success(fallback)
       }
     }
-    
-    let cachedModel = existingModels.first(where: {model in
-      model.modelId == modelMeta.modelId
+
+    let cachedModel = localModels.first(where: {model in
+      model.modelId == latestModelMetadata.modelId
     })
     if cachedModel != nil {
       return .success(cachedModel!.localPath)
     }
     
-    // model isn't available locally, we need to fetch and compile it
-    let fm = FileManager.default
-    let modelZip: URL
+    let modelDownloadUrl: URL
     do {
-      modelZip = try await downloadFile(url: modelMeta.modelUri)
+      modelDownloadUrl = try await downloadModel(metadata: latestModelMetadata)
     } catch {
       return .failure(PoseModelError.downloadFailed)
     }
-    assert(fm.fileExists(atPath: modelZip.path))
-    let unzipDirectory = try! FileManager.default.url(
-      for: .itemReplacementDirectory,
-      in: .userDomainMask,
-      appropriateFor: modelZip,
-      create: true
-    )
-    try! fm.unzipItem(at: modelZip, to: unzipDirectory)
-    let mlPackageDir = try! fm.contentsOfDirectory(atPath: unzipDirectory.path).first(where: { s in
-      s.hasSuffix(".mlpackage")
-    })!
-    let mlPackageUrl = unzipDirectory.appendingPathComponent(mlPackageDir)
-    guard let modelUrl = try? MLModel.compileModel(at: mlPackageUrl) else {
-      return .failure(PoseModelError.compileFailed)
-    }
-    let permanentUrl = getModelStoreRoot().appendingPathComponent(
-      "\(modelMeta.modelId).\(modelUrl.pathExtension)")
-    _ = try! fm.replaceItemAt(permanentUrl, withItemAt: modelUrl)
     
-    if #available(iOS 14.0, *) {
-      logger.info("Model compiled to \(permanentUrl)")
-    }
-    return .success(permanentUrl)
+    return .success(modelDownloadUrl)
   }
   
-  public func getModel(auth: APIAuth) async -> Result<MLModel, PoseModelError> {
-    if (self.model == nil) {
-      let result = await doInitModel(auth: auth)
-      switch result {
-      case .success(let model):
-        self.model = model
-      case .failure(let err):
-        return .failure(err)
-      }
-    }
-    return .success(self.model!)
-  }
-  
-  private func doInitModel(auth: APIAuth) async -> Result<MLModel, PoseModelError> {
-    switch await fetchModel(auth: auth) {
+  private func doInitModel(auth: APIAuth, type: ModelMetadata.ModelType) async -> Result<URL, PoseModelError> {
+    switch await fetchModel(auth: auth, type: type) {
     case .failure(let err):
       return .failure(err)
     case .success(let url):
-      if let mlModel = try? MLModel(contentsOf: url) {
-        return .success(mlModel)
-      } else {
-        return .failure(PoseModelError.compileFailed)
-      }
+      return .success(url)
     }
   }
-
   
   private func getOnDeviceModels(auth: APIAuth) async throws -> [ModelMetadata] {
     if let override = getOnDeviceModelOverride() {
       return [override]
     }
 
-    var request = URLRequest(url: URL(string: "https://api.getguru.fitness/mlmodels/ondevice")!)
+    var request = URLRequest(url: URL(string: "https://api.getguru.fitness/mlmodels/ondevice?sdkVersion=2.0.0")!)
     request = auth.apply(request: request)
     let (data, response) = try await URLSession.shared.data(for: request)
     let httpResponse = (response as? HTTPURLResponse)!

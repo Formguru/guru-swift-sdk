@@ -140,7 +140,8 @@ public class LocalVideoInference : NSObject {
   @available(macOS 12.0, iOS 15.0, tvOS 15.0, watchOS 8.0, *)
   private func ensureModelIsReady() async throws {
     let auth = APIKeyAuth(apiKey: apiKey)
-    self.poseModel = try! await self.modelStore.getModel(auth: auth).get()
+    let modelUrl = try! await self.modelStore.getModel(auth: auth, type: ModelMetadata.ModelType.pose).get()
+    self.poseModel = try MLModel(contentsOf: modelUrl)
   }
   
   private func createVideo(activity: Activity) async throws -> String {
