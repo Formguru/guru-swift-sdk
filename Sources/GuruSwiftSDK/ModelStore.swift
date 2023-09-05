@@ -17,6 +17,11 @@ public struct OnDeviceModel: Codable {
   let localPath: URL
 }
 
+public enum PoseModelError: Error {
+  case downloadFailed
+  case compileFailed
+}
+
 
 public struct ModelMetadata: Codable {
   
@@ -39,6 +44,11 @@ actor ModelStore {
   
   let USE_LOCAL_MODEL = false
   var model: URL? = nil
+  
+  public func getLatestModelMetadata(auth: APIAuth, type: ModelMetadata.ModelType) async throws -> ModelMetadata {
+    let models = try await getOnDeviceModels(auth: auth)
+    return models.first(where: { $0.modelType == type })!
+  }
   
   public func getModel(auth: APIAuth, type: ModelMetadata.ModelType) async -> Result<URL, PoseModelError> {
     if (self.model == nil) {
@@ -106,14 +116,9 @@ actor ModelStore {
     })
   }
   
-  private func fetchLatestModelMetadata(auth: APIAuth, type: ModelMetadata.ModelType) async throws -> ModelMetadata {
-    let models = try await getOnDeviceModels(auth: auth)
-    return models.first(where: { $0.modelType == type })!
-  }
-  
   private func fetchModel(auth: APIAuth, type: ModelMetadata.ModelType) async -> Result<URL, PoseModelError> {
     let localModels = listLocalModels()
-    guard let latestModelMetadata = try? await fetchLatestModelMetadata(auth: auth, type: type) else {
+    guard let latestModelMetadata = try? await getLatestModelMetadata(auth: auth, type: type) else {
       if (localModels.isEmpty) {
         return .failure(PoseModelError.downloadFailed)
       } else {

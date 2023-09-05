@@ -61,13 +61,6 @@ public enum InferenceLandmark: String, CaseIterable {
   case rightAnkle = "right_ankle"
 }
 
-public enum UserFacing {
-  case right
-  case left
-  case toward
-  case other
-}
-
 public struct Keypoint: Equatable {
   public let x: Double
   public let y: Double
@@ -97,90 +90,5 @@ public struct Keypoint: Equatable {
   
   public func toScreenPoint(width: CGFloat, height: CGFloat) -> CGPoint {
     return CGPoint(x: self.x * width, y: self.y * height)
-  }
-}
-
-public class FrameInference {
-  let previousFrame: FrameInference?
-  let rawKeypoints: [Int: Keypoint]?
-  let smoothKeypoints: [Int: Keypoint]?
-  let timestamp: Date
-  let secondsSinceStart: Double
-  let frameIndex: Int
-  
-  public init(keypoints: [Int: Keypoint]?, timestamp: Date, secondsSinceStart: Double, frameIndex: Int, previousFrame: FrameInference?) {
-    self.rawKeypoints = keypoints
-    self.timestamp = timestamp
-    self.secondsSinceStart = secondsSinceStart
-    self.frameIndex = frameIndex
-    self.previousFrame = previousFrame
-    
-    if (previousFrame == nil || previousFrame?.smoothKeypoints == nil) {
-      self.smoothKeypoints = rawKeypoints
-    }
-    else if (rawKeypoints != nil) {
-      self.smoothKeypoints = FrameInference.smoothedKeypoints(keypoints: rawKeypoints!, previousFrame: previousFrame!)
-    }
-    else {
-      self.smoothKeypoints = nil
-    }
-  }
-
-  public func keypointForLandmark(_ landmark: InferenceLandmark) -> Keypoint? {
-    return smoothKeypoints?[cocoLabelToIdx[landmark.rawValue]!]
-  }
-  
-  public func userFacing() -> UserFacing {
-    let nose = keypointForLandmark(InferenceLandmark.nose)
-    if (nose == nil) {
-      return UserFacing.other
-    }
-    else {
-      let leftEar = keypointForLandmark(InferenceLandmark.leftEar)
-      let rightEar = keypointForLandmark(InferenceLandmark.rightEar)
-      if (leftEar != nil && rightEar != nil) {
-        if (nose!.x < leftEar!.x && nose!.x > rightEar!.x) {
-          return UserFacing.toward
-        }
-        else if (nose!.x < leftEar!.x && nose!.x < rightEar!.x) {
-          return UserFacing.right
-        }
-        else if (nose!.x > leftEar!.x && nose!.x > rightEar!.x) {
-          return UserFacing.left
-        }
-        else {
-          return UserFacing.other
-        }
-      }
-      else {
-        return UserFacing.other
-      }
-    }
-  }
-  
-  private static func smoothedKeypoints(keypoints: [Int: Keypoint], previousFrame: FrameInference) -> [Int: Keypoint] {
-    let currentFrameWeight = 0.25
-
-    var smoothedKeypoints = [Int: Keypoint]()
-    for nextLandmark in InferenceLandmark.allCases {
-      let previousKeypoint = previousFrame.keypointForLandmark(nextLandmark);
-      let landmarkIndex = cocoLabelToIdx[nextLandmark.rawValue]!
-      let currentKeypoint = keypoints[landmarkIndex];
-      
-      let minScore = 0.01
-      if (previousKeypoint == nil || previousKeypoint!.score < minScore) {
-        smoothedKeypoints[landmarkIndex] = currentKeypoint
-      } else if (currentKeypoint == nil || currentKeypoint!.score < minScore) {
-        smoothedKeypoints[landmarkIndex] = previousKeypoint
-      } else {
-        smoothedKeypoints[landmarkIndex] = Keypoint(
-          x: (1 - currentFrameWeight) * previousKeypoint!.x + currentFrameWeight * currentKeypoint!.x,
-          y: (1 - currentFrameWeight) * previousKeypoint!.y + currentFrameWeight * currentKeypoint!.y,
-          score: (1 - currentFrameWeight) * previousKeypoint!.score + currentFrameWeight * currentKeypoint!.score
-        )
-      }
-    }
-    
-    return smoothedKeypoints
   }
 }

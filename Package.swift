@@ -12,34 +12,42 @@ let package = Package(
     products: [
         .library(
             name: "GuruSwiftSDK",
-            targets: ["GuruSwiftSDK", "libgurucv"]),
+            targets: ["GuruSwiftSDK"]),
     ],
     dependencies: [
       .package(url: "https://github.com/WeTransfer/Mocker.git", from: "2.5.6"),
-      .package(
-        url: "https://github.com/weichsel/ZIPFoundation.git",
-        .upToNextMinor(from: Version(0, 9, 15))
-      )
     ],
     targets: [
         .target(
             name: "GuruSwiftSDK",
-            dependencies: ["libgurucv", "ZIPFoundation", "C"],
-            resources: [
-              .process("Resources")
-            ]
+            dependencies: ["C"]
         ),
-        .target(name: "libgurucv", dependencies: ["opencv2"]),
         .target(
           name: "C",
           dependencies: ["GuruEngine", "opencv2", "quickjs", "onnxruntime"],
           path: "Sources/C",
           linkerSettings: [LinkerSetting.linkedLibrary("c++")]
         ),
-        .binaryTarget(name: "GuruEngine", path: "Modules/GuruEngine.xcframework"),
-        .binaryTarget(name: "quickjs", path: "Modules/quickjs.xcframework"),
-        .binaryTarget(name: "onnxruntime", path: "Modules/onnxruntime.xcframework"),
-        .binaryTarget(name: "opencv2", path: "Modules/opencv2.xcframework"),
+        .binaryTarget(
+          name: "GuruEngine",
+          url: "https://guru-dist.s3.us-west-2.amazonaws.com/xcframework/guru-engine/20230905/guru-engine.xcframework.zip",
+          checksum: "519bf751b27d9b34e34fa96e6ae5637c7aef4fead290b8097638872b9abaacde"
+        ),
+        .binaryTarget(
+          name: "quickjs",
+          url: "https://guru-dist.s3.us-west-2.amazonaws.com/xcframework/quickjs/20230905/quickjs.xcframework.zip",
+          checksum: "b2695691fd981568520efbda1da0abad79ee493b589589c70070d005d178e15c"
+        ),
+        .binaryTarget(
+          name: "onnxruntime",
+          url: "https://guru-dist.s3.us-west-2.amazonaws.com/xcframework/onnxruntime/20230905/onnxruntime.xcframework.zip",
+          checksum: "2a2a86285f1ebabca0aac22b4077e8ebbcfad4c3d8cc672921457e8e7ef17752"
+        ),
+        .binaryTarget(
+          name: "opencv2",
+          url: "https://guru-dist.s3.us-west-2.amazonaws.com/xcframework/opencv2/20230905/opencv2.xcframework.zip",
+          checksum: "5169f71a867474027f5c399188c164055d5bcb728f9ec6db3f8969ee7d10879d"
+        ),
         .testTarget(
             name: "GuruSwiftSDKTests",
             dependencies: ["GuruSwiftSDK", "Mocker"],
