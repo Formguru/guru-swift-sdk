@@ -5,149 +5,124 @@ A Swift SDK for interacting with the Guru API.
 # Getting Started
 
 After adding the package as a dependency to your project, you will want to implement a controller like the following.
-It is a simple controller that starts inference (in response to some button click) and shows each captured frame
-to the user, in addition to rendering some of the inference result. Each section is described in more detail below.
+It is a simple controller that opens the camera feed and runs an AI schema against each frame to perform some analysis. 
+This example assumes you have already built an AI schema on the [Guru Console](https://console.getguru.fitness), so create
+one there if you haven't already.
+Each section is described in more detail below.
 
 ```swift
 import UIKit
 import AVFoundation
 import GuruSwiftSDK
 
-class InferenceViewController: UIViewController {
+class SkeletonSDKViewController: UIViewController {
   
-  var inference: LocalVideoInference?
+  let session = AVCaptureSession()
+  var guruVideo: GuruVideo?
+  var latestInference: GuruAnalysis = GuruAnalysis(result: nil, processResult: [:])
+
   @IBOutlet weak var imageView: UIImageView!
-  var userLastFacing: UserFacing = UserFacing.other
-
-  @IBAction func beingCapture(_ sender: AnyObject) {
-    do {
-        inference = try LocalVideoInference(
-        consumer: self,
-        cameraPosition: .front,
-        source: "your-company-name",
-        apiKey: "your-api-key"
+  
+  @IBAction func start(_ sender: Any) {
+    // Setup the camera
+    session.sessionPreset = .vga640x480
+    let device =  AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: AVCaptureDevice.Position.front)
+    let input = try! AVCaptureDeviceInput(device: device!)
+    session.addInput(input)    
+    let output = AVCaptureVideoDataOutput()
+    output.alwaysDiscardsLateVideoFrames = true
+    output.videoSettings = [kCVPixelBufferPixelFormatTypeKey as AnyHashable as! String: kCVPixelFormatType_32BGRA]
+    output.setSampleBufferDelegate(self, queue: DispatchQueue.main)
+    session.addOutput(output)
+    
+    // Create the GuruVideo object
+    Task { @MainActor in
+      self.guruVideo = try await GuruVideo(
+          apiKey: "YOUR-API-KEY",
+          schemaId: "SCHEMA-ID"
       )
-      
-      Task {
-        let videoId = try await inference!.start(activity: Activity.shoulder_flexion)
-        print("Guru videoId is \(videoId)")
+    }
+    
+    // Start the camera feed
+    DispatchQueue.global(qos: .userInitiated).async {
+      self.session.startRunning()
+    }
+  }
+  
+  func imageOrientation() -> UIImage.Orientation {
+      let curDeviceOrientation = UIDevice.current.orientation
+      var exifOrientation: UIImage.Orientation
+      switch curDeviceOrientation {
+          case UIDeviceOrientation.portraitUpsideDown:
+              exifOrientation = .left
+          case UIDeviceOrientation.landscapeLeft:
+              exifOrientation = .upMirrored
+          case UIDeviceOrientation.landscapeRight:
+              exifOrientation = .down
+          case UIDeviceOrientation.portrait:
+              exifOrientation = .up
+          default:
+              exifOrientation = .up
       }
-    }
-    catch {
-      print("Unexpected error starting inference: \(error)")
-    }
+      return exifOrientation
   }
   
-  override func viewWillDisappear(_ animated: Bool) {
-    Task {
-      try! await inference?.stop()
+  private func bufferToImage(imageBuffer: CMSampleBuffer) -> UIImage? {
+    guard let imageBuffer: CVPixelBuffer = CMSampleBufferGetImageBuffer(imageBuffer) else {
+      return nil
     }
+
+    return UIImage(
+      ciImage: CIImage(cvPixelBuffer: imageBuffer),
+      scale: 1.0,
+      orientation: imageOrientation()
+    )
+  }
+  
+  private func updateInference(image: UIImage) async {
+    self.latestInference = guruVideo!.newFrame(frame: image)
   }
 }
 
-extension InferenceViewController: InferenceConsumer {
-  
-  func consumeAnalysis(analysis: Analysis) {
-    // TODO: Implement this function.
-  }
-  
-  func consumeFrame(frame: UIImage, inference: FrameInference) {
-    let painter = InferencePainter(frame: frame, inference: inference)
-      .paintLandmarkConnector(from: InferenceLandmark.leftShoulder, to: InferenceLandmark.leftElbow)
-      .paintLandmarkConnector(from: InferenceLandmark.leftElbow, to: InferenceLandmark.leftWrist)
-      .paintLandmarkConnector(from: InferenceLandmark.leftShoulder, to: InferenceLandmark.leftHip)
-      .paintLandmarkConnector(from: InferenceLandmark.leftHip, to: InferenceLandmark.leftKnee)
-      .paintLandmarkConnector(from: InferenceLandmark.leftKnee, to: InferenceLandmark.leftAnkle)
-      .paintLandmarkConnector(from: InferenceLandmark.rightShoulder, to: InferenceLandmark.rightElbow)
-      .paintLandmarkConnector(from: InferenceLandmark.rightElbow, to: InferenceLandmark.rightWrist)
-      .paintLandmarkConnector(from: InferenceLandmark.rightShoulder, to: InferenceLandmark.rightHip)
-      .paintLandmarkConnector(from: InferenceLandmark.rightHip, to: InferenceLandmark.rightKnee)
-      .paintLandmarkConnector(from: InferenceLandmark.rightKnee, to: InferenceLandmark.rightAnkle)
-    
-    let userFacing = inference.userFacing()
-    if (userFacing != UserFacing.other) {
-      userLastFacing = userFacing
+extension SkeletonSDKViewController: AVCaptureVideoDataOutputSampleBufferDelegate {
+  public func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+    let image: UIImage? = bufferToImage(imageBuffer: sampleBuffer)
+      
+    if (image != nil && guruVideo != nil) {
+      DispatchQueue.global(qos: .userInteractive).async {
+        Task.detached {
+          // run the inference from the AI schema
+          await self.updateInference(image: image!)
+        }
+      }
+      
+      // render the result of the inference onto the image
+      let overlaidImage = guruVideo!.renderFrame(frame: image!, analysis: self.latestInference)
+      
+      imageView.image = overlaidImage
+      
+      // TODO: If you want to do anything else with this frame,
+      // like writing the results to your own API,
+      // this is the place to do it!
     }
-    if (userLastFacing == UserFacing.left) {
-      painter.paintLandmarkAngle(center: InferenceLandmark.rightShoulder, from: InferenceLandmark.rightHip, to: InferenceLandmark.rightElbow, clockwise: true)
-    }
-    else if (userLastFacing == UserFacing.right) {
-      painter.paintLandmarkAngle(center: InferenceLandmark.leftShoulder, from: InferenceLandmark.leftHip, to: InferenceLandmark.leftElbow, clockwise: false)
-    }
-    
-    imageView.image = painter.finish()
   }
 }
 ```
 
-The member variables of the controller are:
+The `start` method, which would be called in response to some button click, does 3 things:
+1. Sets up the camera. There are many ways to do this in iOS, shown here is one simple way.
+2. Creates the `GuruVideo` object. This is the primary object for interfacing with the Guru SDK.
+You will want to create one of these per video recorded. You provide to it your API Key, and the ID
+of your Schema. Both of these values can be retrieved from the `Deploy` tab on the Guru Console.
+3. Starts the camera feed.
 
-```swift
-var inference: LocalVideoInference?
-```
-The LocalVideoInference is the main engine for interacting with the GuruSwiftSDK. You will use it to start and stop the inference.
+After this, the `captureOutput` method will start receiving a stream of images from the camera.
+For each image, it passes it to the `newFrame` method on the `GuruVideo` instance. This method
+will run the AI Schema's `Process` and `Analyze` code against the frame, and return the result.
 
-```swift
-@IBOutlet weak var imageView: UIImageView!
-```
-A handle to a `UIImageView` that we'll use to display each captured frame.
-
-```swift
-var userLastFacing: UserFacing = UserFacing.other
-```
-A variable to store the direction the user was facing in the previous frame.
-We'll use this below to help us in cases where the inference confidence is low.
-
-The `beingCapture` method would be called in response to the user clicking a button to start capturing.
-```swift
-inference = try LocalVideoInference(
-  consumer: self,
-  cameraPosition: .front,
-  source: "your-company-name",
-  apiKey: "your-api-key"
-)
-
-Task {
-  let videoId = try await inference!.start(activity: Activity.shoulder_flexion)
-  print("Guru videoId is \(videoId)")
-}
-```
-It takes the source and apiKey, that will have been provided to you by Guru.
-You also specify which phone camera to use. 
-The `consumer` is a reference to the object that will be called as inference is
-performed. It must implement the `InferenceConsumer` protocol.
-The call to `start` will open the camera and begin making callbacks to the consumer.
-
-The `viewWillDisappear` method is called when the user navigates away. It
-ensures that the video capturing stops using `try! await inference?.stop()`.
-
-The `InferenceConsumer` implementation has 2 important methods:
-`func consumeFrame(frame: UIImage, inference: FrameInference?)` will be called 
-for each frame captured. It will include the `frame`, which is the raw image itself,
-and the `inference`, which is the information that has been analysed for the frame.
-You can combine the two to draw additional information on the screen about what has
-been captured. In the example above, it is drawing some of the keypoints to
-create a skeleton and the angle between the hip, shoulder, and elbow. See the method
-documentation in `InferencePainter` for more detail on each method.
-
-The `func consumeAnalysis(analysis: Analysis)` callback is invoked less frequently,
-and contains meta analysis about each of the frames seen so far. In here you can find
-information about reps that have been counted, and any extra information about those
-reps.
-
-## Options
-Following is a list of the configurable options for `LocalVideoInference`:
-- `maxDuration`: The maximum amount of time, in seconds, that recording can run for. After this amount of time video capturing will automatically terminate (and the final analysis results sent to the callback). Default is 1 minute. Note that the longer a capture runs for, the longer the delay experienced in receiving new analysis results.
-- `analysisPerSecond`: The maximum number of frames per second to send to the server for rep counting and analysis. Default is 8 per second. Lower values will results in lower bandwidth usage, at the expense of less accurate rep counting and analysis. Higher values will use more bandwidth, but give more accurate results. Generally speaking, the faster a movement is, the higher this value should be. Note that the video is recorded at 30 fps and so setting any value higher than this will have no affect.
-- `recordTo`: If provided, the path to a file where the video will be recorded (in addition to also being streamed to the callback).
-
-## Recording
-If you wish to record the captured video then you can use an [AVAssetWriter](https://developer.apple.com/documentation/avfoundation/avassetwriter) to output each captured frame to a file. See [here](https://gist.github.com/yusuke024/b5cd3909d9d7f9e919291491f6b381f0#file-viewcontroller-swift-L82) for an example implementation.
-
-If the video is recorded, you may choose to call `uploadVideo` after recording has been stopped.
-By uploading your video to the Guru servers, overlay videos will be built for the video.
-These overlay videos include rep counts and wireframes drawn over the top of the video.
-The returned `UploadResult` will contain URLs from which the overlays can be downloaded.
+It then also passes the result to the `renderFrame` method, which will run the `Render` code from
+the AI schema. This will produce a new image, with bounding boxes, skeletons, or whatever else the
+AI schema defines drawn onto it.
 
 # Requirements
 This SDK requires iOS 15 or higher to function. It will throw a runtime error if
@@ -155,21 +130,3 @@ run on iOS >= 13 and < 15.
 
 It has been tested for performance on iPhone 12 and higher. 
 iPhone 11 will function, albeit with slower performance.
-
-# Development
-
-## How to build against OpenCV
-
-Note: these instructions are for Guru developers only.
-
-Use the `build-xcframework.sh` script to package OpenCV (used by libgurucv).
-Its output will instruct you on how to store the artifact in S3 and update the
-checksum in Package.swift.
-
-```bash
-cd thirdparty
-./build-xcframework.sh
-```
-
-## How to run tests
-The easiest way is to run them from the `Test navigator` in XCode.
