@@ -4,6 +4,9 @@ A Swift SDK for interacting with the Guru API.
 
 # Getting Started
 
+Start by adding this Swift package as a dependency to your iOS app. To do this, right click on your Project and select `Add Package`. Enter
+the URL of this repository and ensure the minimum version is at least `2.0.0`.
+
 After adding the package as a dependency to your project, you will want to implement a controller like the following.
 It is a simple controller that opens the camera feed and runs an AI schema against each frame to perform some analysis. 
 This example assumes you have already built an AI schema on the [Guru Console](https://console.getguru.fitness), so create
