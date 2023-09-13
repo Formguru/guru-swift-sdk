@@ -53,21 +53,21 @@ public class AnalysisPainter {
   public func cgContext() -> CGContext {
     return context
   }
-
+  
   public func finish() -> UIImage {
     let paintedImage = UIGraphicsGetImageFromCurrentImageContext()
     UIGraphicsEndImageContext()
     return paintedImage!
   }
-
+  
   @discardableResult public func boundingBox(
     box: [String: [String: Double]],
     color: [String: Int],
     width: Double) -> AnalysisPainter {
       self.context.setStrokeColor(self.toUIColor(color: color).cgColor)
-
-      let topLeft = jsonPointToScreenPoint(box["topLeft"]!)
-      let bottomRight = jsonPointToScreenPoint(box["bottomRight"]!)
+      
+      let topLeft = jsonPointToScreenPoint(box["topLeft"]!)!
+      let bottomRight = jsonPointToScreenPoint(box["bottomRight"]!)!
       context.addPath(
         UIBezierPath(rect: CGRect(
           x: topLeft.x,
@@ -76,29 +76,31 @@ public class AnalysisPainter {
           height: bottomRight.y - topLeft.y
         )).cgPath
       )
-
+      
       context.setLineWidth(width)
       context.strokePath()
       
       return self
-  }
+    }
   
   @discardableResult public func skeleton(
     keypoints: [String: [String: Double]],
     lineColor: [String: Int],
     keypointColor: [String: Int],
     lineWidth: Double,
-    keypointRadius: Double) -> AnalysisPainter {
-      let connectorUIColor = self.toUIColor(color: lineColor)
-      let keypointUIColor = self.toUIColor(color: keypointColor)
-
-      self.jointPairs.forEach { pair in
-        let joint0JSONKeypoint = keypoints[pair[0]]
-        let joint1JSONKeypoint = keypoints[pair[1]]
-        if (joint0JSONKeypoint != nil && joint1JSONKeypoint != nil) {
-          let joint0Keypoint = self.jsonPointToKeyoint(joint0JSONKeypoint!)
-          let joint1Keypoint = self.jsonPointToKeyoint(joint1JSONKeypoint!)
-
+    keypointRadius: Double,
+    minKeypointScore: Double = 0.05
+  ) -> AnalysisPainter {
+    let connectorUIColor = self.toUIColor(color: lineColor)
+    let keypointUIColor = self.toUIColor(color: keypointColor)
+    
+    self.jointPairs.forEach { pair in
+      if let joint0JSONKeypoint = keypoints[pair[0]],
+         let joint1JSONKeypoint = keypoints[pair[1]],
+         let joint0Keypoint = self.jsonPointToKeypoint(joint0JSONKeypoint),
+         let joint1Keypoint = self.jsonPointToKeypoint(joint1JSONKeypoint) {
+        let minScore = min(joint0Keypoint.score, joint1Keypoint.score)
+        if minScore >= minKeypointScore {
           self.keypointPainter.paintKeypointConnector(
             from: joint0Keypoint,
             to: joint1Keypoint,
@@ -108,8 +110,9 @@ public class AnalysisPainter {
           )
         }
       }
+    }
     
-      return self
+    return self
   }
   
   private func toUIColor(color: [String: Int]) -> UIColor {
@@ -121,12 +124,17 @@ public class AnalysisPainter {
     )
   }
   
-  private func jsonPointToKeyoint(_ jsonPoint: [String: Double]) -> Keypoint {
-    return Keypoint(x: jsonPoint["x"]!, y: jsonPoint["y"]!)
+  private func jsonPointToKeypoint(_ jsonPoint: [String: Double]) -> Keypoint? {
+    if let score = jsonPoint["score"] ?? jsonPoint["confidence"],
+       let x = jsonPoint["x"],
+       let y = jsonPoint["y"] {
+      return Keypoint(x: x, y: y, score: score)
+    }
+    return nil
   }
   
-  private func jsonPointToScreenPoint(_ jsonPoint: [String: Double]) -> CGPoint {
-    return self.jsonPointToKeyoint(jsonPoint)
+  private func jsonPointToScreenPoint(_ jsonPoint: [String: Double]) -> CGPoint? {
+    return self.jsonPointToKeypoint(jsonPoint)?
       .toScreenPoint(width: self.frame.size.width, height: self.frame.size.height)
   }
 }
