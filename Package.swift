@@ -20,7 +20,10 @@ let package = Package(
     targets: [
         .target(
             name: "GuruSwiftSDK",
-            dependencies: ["C"]
+            dependencies: ["C"],
+            resources: [
+              .copy("Resources/javascript.bundle"),
+            ]
         ),
         .target(
           name: "C",
@@ -30,8 +33,9 @@ let package = Package(
         ),
         .binaryTarget(
           name: "GuruEngine",
-          url: "https://guru-dist.s3.us-west-2.amazonaws.com/xcframework/guru-engine/20230905/guru-engine.xcframework.zip",
-          checksum: "519bf751b27d9b34e34fa96e6ae5637c7aef4fead290b8097638872b9abaacde"
+          // path: "../guruengine/GuruEngine.xcframework"
+          url: "https://guru-dist.s3.us-west-2.amazonaws.com/xcframework/guru-engine/20230913/guru-engine.xcframework.zip",
+          checksum: "8026871e0e9c91822ed3a5b9ec7c2b14fe5dccb5cc91d0ad494ad88151ee5f49"
         ),
         .binaryTarget(
           name: "quickjs",
