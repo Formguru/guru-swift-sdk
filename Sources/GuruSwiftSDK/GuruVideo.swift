@@ -36,7 +36,8 @@ public class GuruVideo {
     }
     defer { self.inferenceLock.unlock() }
 
-    let inferenceResult = self.guruEngine.processFrame(image: frame)
+    // TODO: how should we handle errors?
+    let inferenceResult = self.guruEngine.processFrame(image: frame)!
     
     self.previousInferences.append(inferenceResult)
     let analysisResult = self.analyze(previousInferences)
@@ -59,6 +60,9 @@ public class GuruVideo {
     }
     self.renderJSContext.setObject(drawBoundingBox, forKeyedSubscript: "drawBoundingBox" as NSString)
     let drawSkeleton: @convention(block) ([String: Any], [String: Int], [String: Int], Double, Double) -> Bool = { object, lineColor, keypointColor, lineWidth, keypointRadius in
+      guard let keypoints = object["keypoints"] as? [String: [String: Double]] else {
+        return false
+      }
       painter.skeleton(
         keypoints: object["keypoints"] as! [String: [String: Double]],
         lineColor: lineColor,
