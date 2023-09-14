@@ -83,22 +83,38 @@ public class GuruEngine {
     }
   }
   
-  public func processFrame(image: UIImage) -> Any {
+  func measureInMilliseconds(_ block: () -> ()) -> UInt64 {
+    let start = DispatchTime.now()
+    block()
+    let end = DispatchTime.now()
+    let nanos = end.uptimeNanoseconds - start.uptimeNanoseconds
+    let ms = nanos / 1_000_000
+    return ms
+  }
+
+  public func processFrame(image: UIImage) -> Any? {
     var result: UnsafePointer<CChar>? = nil
     self.withRgbImage(image: image, { imagePtr in
       var state = EngineState(target_fps: 1.0)
       withUnsafeMutablePointer(to: &state) { enginePtr in
-        result = C.process_frame(enginePtr, imagePtr)
+        let msElapsed = measureInMilliseconds {
+          result = C.process_frame(enginePtr, imagePtr)
+        }
+        // print("process_frame() took \(msElapsed) ms (\(1000.0 / Double(msElapsed)) fps)")
       }
     })
-    let jsonResult = parseJSON(result!)
     let now = Date()
     if lastInferenceTime != nil {
       let elapsed = now.timeIntervalSince(lastInferenceTime!)
       // print("Inference took \(elapsed * 1000) ms (\(1.0 / elapsed) fps)")
     }
     lastInferenceTime = now
-    return jsonResult
+    if result != nil, let jsonResult = parseJSON(result!) {
+      return jsonResult
+    } else {
+      print("processFrame() did not return a valid result!")
+      return nil
+    }
   }
   
   private enum Container {
@@ -106,11 +122,13 @@ public class GuruEngine {
     case array([Any])
   }
   
-  private func parseJSON(_ result: UnsafePointer<CChar>) -> [String: Any] {
+  private func parseJSON(_ result: UnsafePointer<CChar>) -> [String: Any]? {
     let stringResult = String(cString: result)
-    let rawJsonResult: [String: Any] = try! JSONSerialization.jsonObject(with: stringResult.data(using: .utf8)!) as! [String: Any]
-    let jsonResult = parseStringsAsNumbers(.dict(rawJsonResult)) as! [String : Any]
-    return jsonResult
+    if let stringData = stringResult.data(using: .utf8),
+       let rawJsonResult = try? JSONSerialization.jsonObject(with: stringData) as? [String: Any] {
+      return parseStringsAsNumbers(.dict(rawJsonResult)) as? [String : Any]
+    }
+    return nil
   }
   
   private func parseStringsAsNumbers(_ container: Container) -> Any {
