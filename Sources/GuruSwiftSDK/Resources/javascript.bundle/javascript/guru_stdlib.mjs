@@ -1,15 +1,13 @@
 import {
-  descaleCoords,
   GURU_KEYPOINTS,
   preprocessedImageToTensor,
   preprocessImageForObjectDetection,
-  preprocessImageForPersonDetection,
   postProcessObjectDetectionResults,
   tensorToMatrix,
   prepareTextsForOwlVit,
 } from "./inference_utils.mjs";
 
-import { centerCrop, normalize } from "Preprocess";
+import { centerCrop, normalize, resize } from "Preprocess";
 
 export class Color {
   /**
@@ -139,6 +137,7 @@ const _loadModel = _createModelLoader();
 export class Frame {
   constructor(guruModels, image, hasAlpha) {
     this.poseModel = _loadModel("guru-rtmpose-img-256x192");
+    this.personDetectionModel = _loadModel("tiny-yolov3");
     this.guruModels = guruModels;
     this.image = image;
     this.hasAlpha = hasAlpha;
@@ -232,58 +231,32 @@ export class Frame {
   }
 
   async _findPeopleBoundaries() {
-    const notImplementedYet = true;
-    if (notImplementedYet) {
-      return [
-        {
-          type: "person",
-          boundary: new Box(
-            new Position(0.0, 0.0, 1.0),
-            new Position(1.0, 1.0, 0.9)
-          ),
-        },
-      ];
+    const [inputWidth, inputHeight] = [416, 416];
+    const resizeWithPadZeros = (img) => {
+      const dummyBbox = { x1: 0, y1: 0, x2: img.width - 1, y2: img.height - 1};
+      return centerCrop(img, { inputWidth, inputHeight, boundingBox: dummyBbox, padding: 1.0 })
     }
 
-    const preprocessedFrame = preprocessImageForPersonDetection(
-      this.image,
-      416,
-      416
-    );
-    const tensor = preprocessedImageToTensor(
-      this.guruModels.ort(),
-      preprocessedFrame
-    );
-    const model = this.guruModels.personDetectionModel();
-    const results = await model.session.run({
-      [model.inputName]: tensor,
+    const resized = resizeWithPadZeros(this.image);
+    const nchw = new Float32Array(resized.image.getData());
+    const tensor = new ort.Tensor('float32', nchw, [1, 3, inputHeight, inputWidth]);
+    const inputName = this.personDetectionModel.GetInputNames()[0]
+    const results = await this.personDetectionModel.Run({
+      [inputName]: tensor,
     });
 
     const outputMatrix = tensorToMatrix(results.dets);
+    // TODO: return more than just the top result?
     const bbox = outputMatrix[0][0];
-
-    const topLeft = descaleCoords(
-      bbox[0],
-      bbox[1],
-      this.image.width,
-      this.image.height,
-      preprocessedFrame.newWidth,
-      preprocessedFrame.newHeight
-    );
-    const bottomRight = descaleCoords(
-      bbox[2],
-      bbox[3],
-      this.image.width,
-      this.image.height,
-      preprocessedFrame.newWidth,
-      preprocessedFrame.newHeight
-    );
+    const [x1, y1, x2, y2, score] = bbox;
+    const topLeft = resized.reverseTransform({x: x1, y: y1})
+    const bottomRight = resized.reverseTransform({x: x2, y: y2})
     return [
       {
         type: "person",
         boundary: new Box(
-          new Position(topLeft[0], topLeft[1], bbox[4]),
-          new Position(bottomRight[0], bottomRight[1], bbox[4])
+          new Position(topLeft.x, topLeft.y, score),
+          new Position(bottomRight.x, bottomRight.y, score)
         ),
       },
     ];
@@ -291,8 +264,8 @@ export class Frame {
 
   async _findObjectKeypoints(boundingBox) {
     // TODO: read this from the model metadata
-    const input_width = 192;
-    const input_height = 256;
+    const inputWidth = 192;
+    const inputHeight = 256;
 
     const _arrayEq = (a, b) => {
       return (
@@ -305,17 +278,18 @@ export class Frame {
 
     const { topLeft: { x: x1, y: y1 } } = boundingBox;
     const { bottomRight: { x: x2, y: y2 } } = boundingBox;
-    if ((x2 - x1) > 1.0 || (y2 - y1) > 1.0) {
-      throw new RuntimeError("boundingBox is not normalized");
+    const maxNormalizedRange = 1.1
+    if ((x2 - x1) > maxNormalizedRange || (y2 - y1) > maxNormalizedRange) {
+      throw new Error("boundingBox is not normalized");
     }
     const bbox = {
-      x: x1 * this.image.width,
-      y: y1 * this.image.height,
-      width: (x2 - x1) * this.image.width,
-      height: (y2 - y1) * this.image.height,
+      x1: x1 * this.image.width,
+      y1: y1 * this.image.height,
+      x2: x2 * this.image.width,
+      y2: y2 * this.image.height,
     };
 
-    var cropped = centerCrop(this.image, { input_width, input_height, bbox });
+    var cropped = centerCrop(this.image, { inputWidth, inputHeight, boundingBox: bbox });
     var normalized = normalize(cropped.image);
     const nchw = new Float32Array(normalized.getData());
     const tensor = new ort.Tensor("float32", nchw, [1, 3, 256, 192]);

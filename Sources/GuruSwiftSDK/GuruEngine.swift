@@ -60,7 +60,11 @@ public class GuruEngine {
   public init(apiKey: String, userCode: String) async {
     let auth = APIKeyAuth(apiKey: apiKey)
     let poseModel = try! await self.modelStore.getModel(auth: auth, type: ModelMetadata.ModelType.pose).get()
-    let modelName = "guru-rtmpose-img-256x192"
+    let personDetModel = try! await self.modelStore.getModel(auth: auth, type: ModelMetadata.ModelType.person).get()
+    let onnxModels = [
+      "guru-rtmpose-img-256x192": poseModel.path,
+      "tiny-yolov3": personDetModel.path
+    ]
     guard let bundleURL = Bundle.module.url(forResource: "javascript", withExtension: "bundle"),
           let bundle = Bundle(url: bundleURL)
     else {
@@ -70,7 +74,7 @@ public class GuruEngine {
     withManifest(
       bundle: bundle,
       jsLibPaths: jsFiles,
-      onnxModels: [modelName: poseModel.path],
+      onnxModels: onnxModels,
       userCode: userCode
     ) { manifest in
       var _manifest = manifest
