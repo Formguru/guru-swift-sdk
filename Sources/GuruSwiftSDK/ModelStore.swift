@@ -43,7 +43,7 @@ public struct ListModelsResponse: Codable {
 actor ModelStore {
   
   let USE_LOCAL_MODEL = false
-  var model: URL? = nil
+  var modelByType: [ModelMetadata.ModelType: URL] = [ : ]
   
   public func getLatestModelMetadata(auth: APIAuth, type: ModelMetadata.ModelType) async throws -> ModelMetadata {
     let models = try await getOnDeviceModels(auth: auth)
@@ -51,16 +51,17 @@ actor ModelStore {
   }
   
   public func getModel(auth: APIAuth, type: ModelMetadata.ModelType) async -> Result<URL, PoseModelError> {
-    if (self.model == nil) {
-      let result = await doInitModel(auth: auth, type: type)
-      switch result {
-      case .success(let model):
-        self.model = model
-      case .failure(let err):
-        return .failure(err)
-      }
+    if let model = modelByType[type] {
+      return .success(model)
     }
-    return .success(self.model!)
+    let result = await doInitModel(auth: auth, type: type)
+    switch result {
+    case .success(let model):
+      self.modelByType[type] = model
+      return .success(model)
+    case .failure(let err):
+      return .failure(err)
+    }
   }
   
   private func getModelStoreRoot() -> URL {
