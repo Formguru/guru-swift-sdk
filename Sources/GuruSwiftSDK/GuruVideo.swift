@@ -25,7 +25,7 @@ public class GuruVideo {
     // TODO: Shut the engine down gracefully
   }
   
-  public func newFrame(frame: UIImage) -> GuruAnalysis {
+  public func newFrame(frame: UIImage) -> GuruAnalysis? {
     if (!inferenceLock.try()) {
       if (lastAnalysis == nil) {
         return GuruAnalysis(result: nil, processResult: [:])
@@ -37,7 +37,9 @@ public class GuruVideo {
     defer { self.inferenceLock.unlock() }
 
     // TODO: how should we handle errors?
-    let inferenceResult = self.guruEngine.processFrame(image: frame)!
+    guard let inferenceResult = self.guruEngine.processFrame(image: frame) else {
+      return nil
+    }
     
     self.previousInferences.append(inferenceResult)
     let analysisResult = self.analyze(previousInferences)

@@ -10,7 +10,7 @@ public class GuruEngine {
   let modelStore = ModelStore()
   var lastInferenceTime: Date? = nil
   
-  func withManifest(bundle: Bundle, jsLibPaths: [String], onnxModels: [String : String], userCode: String, closure: (Manifest) -> Void) {
+  func withManifest(bundle: Bundle, jsModules: [(String, String)], onnxModels: [String : String], userCode: String, closure: (Manifest) -> Void) {
     
     var ptrs: [UnsafeRawPointer] = []
     func allocate(_ s: String) -> UnsafePointer<CChar>? {
@@ -20,13 +20,6 @@ public class GuruEngine {
     }
     
     let js_lib_root = allocate(bundle.bundlePath)
-    var jsFileCPaths = jsLibPaths.map { allocate($0) }
-    jsLibPaths.forEach { p in
-      let fullPath = bundle.bundlePath + "/" + p
-      if !FileManager.default.fileExists(atPath: fullPath) {
-        fatalError("jsLib \(fullPath) does not exist")
-      }
-    }
     
     var onnxModelStructs = onnxModels.map { (k, v) in
       let name = allocate(k)
@@ -34,22 +27,35 @@ public class GuruEngine {
       let path = allocate(v)
       return OnnxModel(name: name, file_path: path)
     }
-    let userCodeStr = allocate(userCode)
     
-    jsFileCPaths.withUnsafeMutableBufferPointer( { ptr in
-      let js_lib_paths = ptr.baseAddress
-      onnxModelStructs.withUnsafeMutableBufferPointer( { ptr in
-        let onnx_models = ptr.baseAddress
+    var jsModuleStructs = jsModules.map { (k, v) in
+      let fullPath = bundle.bundlePath + "/" + v
+      if !FileManager.default.fileExists(atPath: fullPath) {
+        fatalError("jsLib \(fullPath) does not exist")
+      }
+      let path = allocate(fullPath)
+      let name = allocate(k)
+      // TODO: verify a file at this path exists
+      return JsModule(module_name: name, file_path: path)
+    }
+
+    let userCodeStr = allocate(userCode)
+
+    jsModuleStructs.withUnsafeMutableBufferPointer( { jsModulePtr in
+      let js_modules = jsModulePtr.baseAddress
+      onnxModelStructs.withUnsafeMutableBufferPointer( { onnxModelsPtr in
+        let onnx_models = onnxModelsPtr.baseAddress
         var manifest = Manifest(
           js_lib_root: js_lib_root,
-          js_lib_paths: js_lib_paths,
-          num_js_lib_paths: Int32(jsLibPaths.count),
+          js_modules: js_modules,
+          num_js_modules: Int32(jsModules.count),
           user_code: userCodeStr,
           onnx_models: onnx_models,
           num_onnx_models: Int32(onnxModels.keys.count)
         )
         closure(manifest)
       })
+
     })
     for ptr in ptrs {
       var _ptr = ptr
@@ -62,18 +68,21 @@ public class GuruEngine {
     let poseModel = try! await self.modelStore.getModel(auth: auth, type: ModelMetadata.ModelType.pose).get()
     let personDetModel = try! await self.modelStore.getModel(auth: auth, type: ModelMetadata.ModelType.person).get()
     let onnxModels = [
-      "guru-rtmpose-img-256x192": poseModel.path,
-      "tiny-yolov3": personDetModel.path
+      "pose": poseModel.path,
+      "person_detection": personDetModel.path
     ]
     guard let bundleURL = Bundle.module.url(forResource: "javascript", withExtension: "bundle"),
           let bundle = Bundle(url: bundleURL)
     else {
       fatalError("Could not find bundle")
     }
-    let jsFiles = ["javascript/inference_utils.mjs", "javascript/guru_stdlib.mjs"]
+    let jsModules = [
+      ("guru/inference_utils", "javascript/inference_utils.mjs"),
+      ("guru/stdlib", "javascript/guru_stdlib.mjs")
+    ]
     withManifest(
       bundle: bundle,
-      jsLibPaths: jsFiles,
+      jsModules: jsModules,
       onnxModels: onnxModels,
       userCode: userCode
     ) { manifest in
@@ -184,12 +193,14 @@ public class GuruEngine {
   }
   
   private func withRgbImage(image: UIImage, _ closure: (UnsafeMutablePointer<RgbImage>) -> Void) {
-    let cgImage = image.cgImage
-    let pixelsPtr = pixelsRGB(img: cgImage!)
+    guard let cgImage = image.cgImage else {
+      fatalError("Failed to read image from camera")
+    }
+    let pixelsPtr = pixelsRGB(img: cgImage)
     defer {
       pixelsPtr.deallocate()
     }
-    var rgbImg = RgbImage(data: pixelsPtr, width: Int32(cgImage!.width), height: Int32(cgImage!.height), channel_order: BGRA)
+    var rgbImg = RgbImage(data: pixelsPtr, width: Int32(cgImage.width), height: Int32(cgImage.height), channel_order: BGRA)
     withUnsafeMutablePointer(to: &rgbImg, { ptr in
       closure(ptr)
     })
