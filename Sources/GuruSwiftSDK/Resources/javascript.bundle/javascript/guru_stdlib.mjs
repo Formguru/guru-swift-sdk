@@ -5,9 +5,10 @@ import {
   postProcessObjectDetectionResults,
   tensorToMatrix,
   prepareTextsForOwlVit,
-} from "./inference_utils.mjs";
+} from "./inference_utils";
 
-import { centerCrop, normalize, resize } from "Preprocess";
+import { centerCrop, normalize, resize } from "guru/preprocess";
+import { loadModelByName } from "guru/onnxruntime";
 
 export class Color {
   /**
@@ -116,14 +117,9 @@ const _createModelLoader = () => {
   const _cache = {};
 
   return (modelName) => {
-    if (!ort.MODELS[modelName]) {
-      throw new Error(`Model ${modelName} not found`);
-    }
 
     if (!_cache[modelName]) {
-      _cache[modelName] = new ort.InferenceSession(
-        ort.MODELS[modelName]
-      );
+      _cache[modelName] = loadModelByName(modelName);
     }
 
     return _cache[modelName]
@@ -136,8 +132,8 @@ const _loadModel = _createModelLoader();
  */
 export class Frame {
   constructor(guruModels, image, hasAlpha) {
-    this.poseModel = _loadModel("guru-rtmpose-img-256x192");
-    this.personDetectionModel = _loadModel("tiny-yolov3");
+    this.poseModel = _loadModel("pose");
+    this.personDetectionModel = _loadModel("person_detection");
     this.guruModels = guruModels;
     this.image = image;
     this.hasAlpha = hasAlpha;
