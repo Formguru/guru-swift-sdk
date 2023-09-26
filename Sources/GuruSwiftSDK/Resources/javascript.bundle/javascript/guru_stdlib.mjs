@@ -5,6 +5,7 @@ import {
   postProcessObjectDetectionResults,
   tensorToMatrix,
   prepareTextsForOwlVit,
+  smoothedZScore,
 } from "./inference_utils";
 
 import { centerCrop, normalize, resize } from "guru/preprocess";
@@ -101,13 +102,18 @@ export const Keypoint = GURU_KEYPOINTS.reduce(
  * A single object present within a particular frame or image.
  */
 export class FrameObject {
+
   /**
+   * @param {string} objectId - The id of the object.
    * @param {string} objectType - The type of the object.
+   * @param {number} timestamp - The timestamp of the frame.
    * @param {Box} boundary - The bounding box of the object, defining its location within the frame.
-   * @param {Dict} keypoints - The keypoints of the object.
+   * @param {Object.<string, Position>} keypoints - A map of the name of a keypoint, to its location within the frame.
    */
-  constructor(objectType, boundary, keypoints) {
+  constructor(objectId, objectType, timestamp, boundary, keypoints) {
+    this._id = objectId;
     this.objectType = objectType;
+    this.timestamp = timestamp;
     this.boundary = boundary;
     this.keypoints = keypoints;
   }
@@ -131,7 +137,8 @@ const _loadModel = _createModelLoader();
  * A single frame from a video, or image, on which Guru can perform inference.
  */
 export class Frame {
-  constructor(guruModels, image, hasAlpha) {
+  constructor(state, guruModels, image, hasAlpha) {
+    this.state = state;
     this.poseModel = _loadModel("pose");
     this.personDetectionModel = _loadModel("person_detection");
     this.guruModels = guruModels;
@@ -155,19 +162,25 @@ export class Frame {
     );
 
     return await Promise.all(
-      objectBoundaries.map(async (nextObject) => {
+      objectBoundaries.map(async (nextObject, objectIndex) => {
         let objectKeypoints = null;
         if (keypoints && nextObject.type === "person") {
           objectKeypoints = await this._findObjectKeypoints(
             nextObject.boundary
           );
         }
-
-        return new FrameObject(
+        
+        const frameObject = new FrameObject(
+          objectIndex.toString(),
           nextObject.type,
+          this.timestamp,
           nextObject.boundary,
-          objectKeypoints
+          objectKeypoints,
         );
+        
+        this.state.registerFrameObject(frameObject);
+        
+        return frameObject;
       })
     );
   }
@@ -306,5 +319,255 @@ export class Frame {
       j2p[GURU_KEYPOINTS[i]] = {x, y, score: scores[i]};
     }
     return j2p
+  }
+}
+
+
+/**
+ * A class that knows the output of inference across the video and is capable of
+ * computing analysis based on it.
+ */
+export class VideoAnalysis {
+
+  constructor(frameResults, videoInferenceState) {
+    this.frameResults = frameResults;
+    this.length = frameResults.length;
+    this.videoInferenceState = videoInferenceState;
+  }
+
+  countRepsByKeypointDistance(objectType, objectId, keypoint1, keypoint2) {
+    const frameObjects = this.videoInferenceState.frameObjectsFor(objectType, objectId);
+
+    const jointDistances = frameObjects.map((frameObject) => {
+      const keypoint1Location = frameObject.keypointLocation(keypoint1);
+      const keypoint2Location = frameObject.keypointLocation(keypoint2);
+
+      if (keypoint1Location && keypoint2Location) {
+        return Math.abs(keypoint1Location.y - keypoint2Location.y);
+      }
+      else {
+        return null;
+      }
+    }).filter((distance) => distance !== null);
+
+    const smoothedData = gaussianSmooth(jointDistances, 1.0);
+
+    const zScores = smoothedZScore(smoothedData, {lag: 10});
+
+    let repCount = 0;
+    let lastZScore = 0;
+    zScores.forEach((zScore) => {
+      if (zScore === 1 && lastZScore !== 1) {
+        ++repCount;
+      }
+
+      lastZScore = zScore;
+    });
+
+    return repCount;
+  }
+
+  filter(callback) {
+    const filteredArray = [];
+    for (let i = 0; i < this.length; i++) {
+      if (callback(this.frameResults[i], i, this)) {
+        filteredArray.push(this.frameResults[i]);
+      }
+    }
+    return new VideoAnalysis(filteredArray);
+  }
+
+  find(callback) {
+    for (let i = 0; i < this.length; i++) {
+      if (callback(this.frameResults[i], i, this)) {
+        return this.frameResults[i];
+      }
+    }
+    return undefined;
+  }
+
+  forEach(callback) {
+    for (let i = 0; i < this.length; i++) {
+      callback(this.frameResults[i], i, this);
+    }
+  }
+
+  get(index) {
+    if (index < 0 || index >= this.length) {
+      return undefined; // Out of bounds
+    }
+    return this.frameResults[index];
+  }
+
+  indexOf(searchElement, fromIndex = 0) {
+    for (let i = fromIndex; i < this.length; i++) {
+      if (this.frameResults[i] === searchElement) {
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  map(callback) {
+    const mappedArray = [];
+    for (let i = 0; i < this.length; i++) {
+      const mappedValue = callback(this.frameResults[i], i, this);
+      mappedArray.push(mappedValue);
+    }
+    return mappedArray;
+  }
+
+  objectIds(objectType) {
+    return this.videoInferenceState.objectIds(objectType);
+  }
+
+  resultArray() {
+    return this.frameResults.map((frameResult) => frameResult.returnValue);
+  }
+
+  reduce(callback, initialValue) {
+    let accumulator = initialValue === undefined ? this.frameResults[0] : initialValue;
+    for (let i = initialValue === undefined ? 1 : 0; i < this.length; i++) {
+      accumulator = callback(accumulator, this.frameResults[i], i, this);
+    }
+    return accumulator;
+  }
+
+  slice(start = 0, end = this.length) {
+    const slicedArray = [];
+    start = Math.max(start >= 0 ? start : this.length + start, 0);
+    end = Math.min(end >= 0 ? end : this.length + end, this.length);
+    for (let i = start; i < end; i++) {
+      slicedArray.push(this.frameResults[i]);
+    }
+    return new VideoAnalysis(slicedArray);
+  }
+
+  toJSON() {
+    return this.frameResults;
+  }
+
+  toString() {
+    return JSON.stringify(this.toJSON());
+  }
+}
+
+
+/**
+ * Holds the state of an inference being performed on a Video. This state applies across frames.
+ */
+export class VideoInferenceState {
+  constructor(objectRegistry = {}) {
+    this.objectRegistry = objectRegistry;
+  }
+
+  /**
+   * Get the FrameObject before and the FrameObject after a given timestamp.
+   *
+   * @param objectType The type of the object.
+   * @param objectId The id of the object.
+   * @param timestamp The timestamp to fetch around.
+   * @return {[FrameObject, FrameObject]} The FrameObjects before and after the timestamp.
+   */
+  frameObjectsAroundTimestamp(objectType, objectId, timestamp) {
+    const frameObjects = this.frameObjectsFor(objectType, objectId);
+
+    if (frameObjects.length === 0) {
+      return null;
+    }
+    if (frameObjects.length === 1) {
+      return [frameObjects[0], frameObjects[0]];
+    }
+
+    let prevFrameObject, nextFrameObject;
+    frameObjects.every((frameObject) => {
+      prevFrameObject = nextFrameObject;
+      nextFrameObject = frameObject;
+
+      return frameObject.timestamp < timestamp;
+    });
+
+    if (!prevFrameObject) {
+      prevFrameObject = nextFrameObject;
+    }
+
+    return [prevFrameObject, nextFrameObject];
+  };
+
+  /**
+   * Gets all of the FrameObjects for a particular object.
+   *
+   * @param {string} objectType
+   * @param {string} objectId
+   * @return {[FrameObject]} The FrameObjects for the object. Empty if object is unknown.
+   */
+  frameObjectsFor(objectType, objectId) {
+    if (!this.objectRegistry.hasOwnProperty(objectType) ||
+      !this.objectRegistry[objectType].hasOwnProperty(objectId)) {
+      return [];
+    }
+    else {
+      return this.objectRegistry[objectType][objectId]
+        .map((frameObject) => this._deserializeRegistryObject(frameObject));
+    }
+  }
+
+  objectIds(objectType) {
+    if (this.objectRegistry.hasOwnProperty(objectType)) {
+      return Object.keys(this.objectRegistry[objectType]);
+    }
+    else {
+      return [];
+    }
+  }
+
+  /**
+   * Register an instance of an object in a particular frame.
+   *
+   * @param {FrameObject} frameObject - The object to register.
+   */
+  registerFrameObject(frameObject) {
+    if (!this.objectRegistry.hasOwnProperty(frameObject.objectType)) {
+      this.objectRegistry[frameObject.objectType] = {};
+    }
+
+    if (!this.objectRegistry[frameObject.objectType].hasOwnProperty(frameObject._id)) {
+      this.objectRegistry[frameObject.objectType][frameObject._id] = [];
+    }
+    this.objectRegistry[frameObject.objectType][frameObject._id].push(frameObject);
+
+    this.objectRegistry[frameObject.objectType][frameObject._id].sort((a, b) => {
+      return a.timestamp - b.timestamp;
+    });
+  }
+
+  _deserializeRegistryObject(registryObject) {
+    const keypoints = {};
+    for (const keypoint in registryObject.keypoints) {
+      keypoints[keypoint] = new Position(
+        registryObject.keypoints[keypoint].x,
+        registryObject.keypoints[keypoint].y,
+        registryObject.keypoints[keypoint].confidence,
+      );
+    }
+
+    return new FrameObject(
+      registryObject._id,
+      registryObject.objectType,
+      registryObject.timestamp,
+      new Box(
+        new Position(
+          registryObject.boundary.topLeft.x,
+          registryObject.boundary.topLeft.y,
+          registryObject.boundary.topLeft.confidence,
+        ),
+        new Position(
+          registryObject.boundary.bottomRight.x,
+          registryObject.boundary.bottomRight.y,
+          registryObject.boundary.bottomRight.confidence,
+        ),
+      ),
+      keypoints,
+    )
   }
 }

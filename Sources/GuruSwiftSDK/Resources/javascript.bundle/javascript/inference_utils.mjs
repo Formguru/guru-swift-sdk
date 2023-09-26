@@ -21,6 +21,22 @@ export const GURU_KEYPOINTS = [
     "left_toe",
     "right_toe",
   ];
+
+function arraySum(array) {
+  return array.reduce((acc, val) => acc + val);
+}
+
+function arrayMean(array) {
+  return arraySum(array) / array.length;
+}
+
+function arrayStdDev(arr) {
+  const arr_mean = arrayMean(arr);
+  const r = function(acc, val) {
+    return acc + ((val - arr_mean) * (val - arr_mean))
+  };
+  return Math.sqrt(arr.reduce(r, 0.0) / arr.length);
+}
   
   function centerToCornersFormat([centerX, centerY, width, height]) {
     return [
@@ -314,3 +330,57 @@ export const GURU_KEYPOINTS = [
     };
     return matrix;
   }
+           
+/**
+* Implementation of the smoothed z-score algorithm, copied from https://stackoverflow.com/a/57889588.
+*
+* @param {[number]} values - The array of values.
+* @param params - A dictionary containing values for lag, threshold, and influence. May be null.
+* @returns {[number]} - An array, the same length as the input, that contains either 0, 1, or -1, corresponding to the
+*  peaks and troughs.
+*/
+export function smoothedZScore(values, params) {
+  if (values === undefined || values.length === 0) {
+    return [];
+  }
+
+  const p = params || {};
+  const lag = p.lag || 5;
+  const threshold = p.threshold || 3.5;
+  const influence = p.influence || 0.5;
+
+  if (values.length < lag + 2) {
+    throw `y data array too short (${values.length}) for given lag of ${lag}`
+  }
+
+  const signals = Array(values.length).fill(0);
+  const filteredY = values.slice(0);
+  const lead_in = values.slice(0, lag);
+
+  const avgFilter = [];
+  avgFilter[lag - 1] = arrayMean(lead_in);
+  const stdFilter = [];
+  stdFilter[lag - 1] = arrayStdDev(lead_in);
+
+  for (let i = lag; i < values.length; i++) {
+    if (Math.abs(values[i] - avgFilter[i - 1]) > (threshold * stdFilter[i - 1])) {
+      if (values[i] > avgFilter[i - 1]) {
+        signals[i] = +1; // positive signal
+      } else {
+        signals[i] = -1; // negative signal
+      }
+      // make influence lower
+      filteredY[i] = influence * values[i] + (1 - influence) * filteredY[i - 1];
+    } else {
+      signals[i] = 0; // no signal
+      filteredY[i] = values[i];
+    }
+
+    // adjust the filters
+    const y_lag = filteredY.slice(i - lag + 1, i + 1);
+    avgFilter[i] = arrayMean(y_lag);
+    stdFilter[i] = arrayStdDev(y_lag);
+  }
+
+  return signals
+}

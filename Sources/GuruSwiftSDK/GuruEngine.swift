@@ -9,8 +9,9 @@ public class GuruEngine {
   
   let modelStore = ModelStore()
   var lastInferenceTime: Date? = nil
+  var inferenceState = [String: Any]()
   
-  func withManifest(bundle: Bundle, jsModules: [(String, String)], onnxModels: [String : String], userCode: String, closure: (Manifest) -> Void) {
+  func withManifest(bundle: Bundle, jsModules: [(String, String)], onnxModels: [String : String], userCode: String, analyzeCode: String, closure: (Manifest) -> Void) {
     
     var ptrs: [UnsafeRawPointer] = []
     func allocate(_ s: String) -> UnsafePointer<CChar>? {
@@ -40,6 +41,7 @@ public class GuruEngine {
     }
 
     let userCodeStr = allocate(userCode)
+    let analyzeCodeStr = allocate(analyzeCode)
 
     jsModuleStructs.withUnsafeMutableBufferPointer( { jsModulePtr in
       let js_modules = jsModulePtr.baseAddress
@@ -50,6 +52,7 @@ public class GuruEngine {
           js_modules: js_modules,
           num_js_modules: Int32(jsModules.count),
           user_code: userCodeStr,
+          analyze_code: analyzeCodeStr,
           onnx_models: onnx_models,
           num_onnx_models: Int32(onnxModels.keys.count)
         )
@@ -63,7 +66,7 @@ public class GuruEngine {
     }
   }
   
-  public init(apiKey: String, userCode: String) async {
+  public init(apiKey: String, userCode: String, analyzeCode: String) async {
     let auth = APIKeyAuth(apiKey: apiKey)
     let poseModel = try! await self.modelStore.getModel(auth: auth, type: ModelMetadata.ModelType.pose).get()
     let personDetModel = try! await self.modelStore.getModel(auth: auth, type: ModelMetadata.ModelType.person).get()
@@ -84,7 +87,8 @@ public class GuruEngine {
       bundle: bundle,
       jsModules: jsModules,
       onnxModels: onnxModels,
-      userCode: userCode
+      userCode: userCode,
+      analyzeCode: analyzeCode
     ) { manifest in
       var _manifest = manifest
       withUnsafeMutablePointer(to: &_manifest, { manifestPtr in
@@ -104,6 +108,23 @@ public class GuruEngine {
     let ms = nanos / 1_000_000
     return ms
   }
+  
+  public func analyzeVideo(frameResults: Any) -> Any? {
+    let frameResultsDupe = strdup(self.toJSONString(frameResults))
+    let frameResultsPtr = UnsafePointer(frameResultsDupe)
+    defer {
+      free(UnsafeMutableRawPointer(mutating: frameResultsDupe))
+    }
+
+    let result: UnsafePointer<CChar>? = C.analyze(frameResultsPtr)
+    
+    if result != nil, let jsonResult = parseJSON(result!) {
+      return jsonResult
+    } else {
+      print("analyzeVideo() did not return a valid result!")
+      return nil
+    }
+  }
 
   public func processFrame(image: UIImage) -> Any? {
     var result: UnsafePointer<CChar>? = nil
@@ -116,6 +137,7 @@ public class GuruEngine {
         // print("process_frame() took \(msElapsed) ms (\(1000.0 / Double(msElapsed)) fps)")
       }
     })
+    
     let now = Date()
     if lastInferenceTime != nil {
       let elapsed = now.timeIntervalSince(lastInferenceTime!)
@@ -123,7 +145,8 @@ public class GuruEngine {
     }
     lastInferenceTime = now
     if result != nil, let jsonResult = parseJSON(result!) {
-      return jsonResult
+      inferenceState = jsonResult["state"] as! [String: Any]
+      return jsonResult["result"]
     } else {
       print("processFrame() did not return a valid result!")
       return nil
@@ -191,6 +214,19 @@ public class GuruEngine {
     context?.draw(img, in: CGRect(x: 0, y: 0, width: img.width, height: img.height))
     return UnsafeMutablePointer<UInt8>(pixelData)
   }
+  
+  private func toJSONString(_ value: Any) -> String? {
+      do {
+          let jsonData = try JSONSerialization.data(withJSONObject: value, options: [])
+          if let jsonString = String(data: jsonData, encoding: .utf8) {
+              return jsonString
+          }
+      } catch {
+          print("Error serializing to JSON: \(error)")
+      }
+      return nil
+  }
+
   
   private func withRgbImage(image: UIImage, _ closure: (UnsafeMutablePointer<RgbImage>) -> Void) {
     guard let cgImage = image.cgImage else {

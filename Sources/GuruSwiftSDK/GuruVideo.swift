@@ -9,15 +9,17 @@ public class GuruVideo {
   let inferenceLock = NSLock()
   var previousInferences: [Any] = []
   var lastAnalysis: GuruAnalysis?
-  var analyzeJSContext: JSContext!
   var renderJSContext: JSContext!
   
   public init(apiKey: String, schemaId: String) async throws {
     self.apiKey = apiKey
     
     self.schema = try await self.getSchema(schemaId: schemaId)
-    self.guruEngine = await GuruEngine(apiKey: apiKey, userCode: self.schema["inferenceCode"] as! String)
-    self.analyzeJSContext = self.initAnalyzeJSContext()
+    self.guruEngine = await GuruEngine(
+      apiKey: apiKey,
+      userCode: self.schema["inferenceCode"] as! String,
+      analyzeCode: self.schema["analyzeVideoCode"] as! String
+    )
     self.renderJSContext = self.initRenderJSContext()
   }
   
@@ -66,7 +68,7 @@ public class GuruVideo {
         return false
       }
       painter.skeleton(
-        keypoints: object["keypoints"] as! [String: [String: Double]],
+        keypoints: keypoints,
         lineColor: lineColor,
         keypointColor: keypointColor,
         lineWidth: lineWidth.isNaN ? 2 : lineWidth,
@@ -82,18 +84,8 @@ public class GuruVideo {
     return painter.finish()
   }
   
-  private func analyze(_ inferenceResults: [Any]) -> JSValue? {
-    var analysisResult: JSValue? = nil
-    let analysisFinished: @convention(block) (JSValue?) -> Bool = { result in
-      analysisResult = result
-      return true
-    }
-    self.analyzeJSContext.setObject(analysisFinished, forKeyedSubscript: "analysisFinished" as NSString)
-    
-    let render = self.analyzeJSContext.objectForKeyedSubscript("invoke")
-    render!.call(withArguments: [inferenceResults])
-    
-    return analysisResult
+  private func analyze(_ inferenceResults: [Any]) -> Any? {
+    return guruEngine.analyzeVideo(frameResults: inferenceResults)
   }
   
   private func getSchema(schemaId: String) async throws -> [String: Any] {
@@ -113,31 +105,6 @@ public class GuruVideo {
     catch let error as NSError {
       throw APICallFailed.getSchemaFailed(error: error.localizedDescription)
     }
-  }
-  
-  private func initAnalyzeJSContext() -> JSContext {
-    let context = JSContext()!
-    context.exceptionHandler = {context, exception in
-      print("Analysis exception: \(String(describing: exception))")
-    }
-
-    let log: @convention(block) (String) -> Bool = { message in
-      print(message)
-      return true
-    }
-    context.setObject(log, forKeyedSubscript: "log" as NSString)
-    
-    let code = """
-\(self.schema["analyzeVideoCode"] as! String)
-
-function invoke(frameResults) {
-  console.log = log;
-  analyzeVideo(frameResults).then(analysisFinished);
-}
-"""
-    context.evaluateScript(code)
-    
-    return context;
   }
   
   private func initRenderJSContext() -> JSContext {
