@@ -110,7 +110,10 @@ public class GuruEngine {
   }
   
   public func analyzeVideo(frameResults: Any) -> Any? {
-    let frameResultsDupe = strdup(self.toJSONString(frameResults))
+    let frameResultsDupe = strdup(self.toJSONString([
+      "frameResults": frameResults,
+      "state": self.inferenceState,
+    ]))
     let frameResultsPtr = UnsafePointer(frameResultsDupe)
     defer {
       free(UnsafeMutableRawPointer(mutating: frameResultsDupe))

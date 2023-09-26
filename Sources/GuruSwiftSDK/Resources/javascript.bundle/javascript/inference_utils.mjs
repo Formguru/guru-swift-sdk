@@ -80,6 +80,41 @@ function arrayStdDev(arr) {
       y * (originalHeight / scaledHeight) / originalHeight,
     ];
   }
+           
+export function gaussianSmooth(data, sigma) {
+  const kernelSize = Math.ceil(sigma * 3) * 2 + 1;
+  const kernel = new Array(kernelSize);
+  const halfSize = (kernelSize - 1) / 2;
+
+  // Generate the Gaussian kernel
+  let sum = 0;
+  for (let i = 0; i < kernelSize; i++) {
+    const x = i - halfSize;
+    kernel[i] = Math.exp(-(x * x) / (2 * sigma * sigma));
+    sum += kernel[i];
+  }
+
+  // Normalize the kernel
+  for (let i = 0; i < kernelSize; i++) {
+    kernel[i] /= sum;
+  }
+
+  const smoothedData = [];
+
+  // Apply the convolution to the data
+  for (let i = 0; i < data.length; i++) {
+    let smoothedValue = 0;
+    for (let j = 0; j < kernelSize; j++) {
+      const dataIndex = i + j - halfSize;
+      if (dataIndex >= 0 && dataIndex < data.length) {
+        smoothedValue += data[dataIndex] * kernel[j];
+      }
+    }
+    smoothedData.push(smoothedValue);
+  }
+
+  return smoothedData;
+}
   
   function toRGBFloatArray(imageData) {
     const increment = 4;
@@ -330,6 +365,16 @@ function arrayStdDev(arr) {
     };
     return matrix;
   }
+           
+export function lowerCamelToSnakeCase(lowerCamel) {
+  return lowerCamel.replace(/([a-z])([A-Z])/g, '$1_$2').toLowerCase();
+}
+
+export function snakeToLowerCamelCase(snake) {
+  return snake.replace(/_([a-z])/g, function (match, letter) {
+    return letter.toUpperCase();
+  });
+}
            
 /**
 * Implementation of the smoothed z-score algorithm, copied from https://stackoverflow.com/a/57889588.

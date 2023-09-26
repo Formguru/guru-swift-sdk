@@ -1,11 +1,14 @@
 import {
+  gaussianSmooth,
   GURU_KEYPOINTS,
+  lowerCamelToSnakeCase,
   preprocessedImageToTensor,
   preprocessImageForObjectDetection,
   postProcessObjectDetectionResults,
   tensorToMatrix,
   prepareTextsForOwlVit,
   smoothedZScore,
+  snakeToLowerCamelCase,
 } from "./inference_utils";
 
 import { centerCrop, normalize, resize } from "guru/preprocess";
@@ -90,13 +93,11 @@ export class Box {
 /**
  * Keypoint is an enumeration of the names of the keypoints which can be found on objects.
  */
-export const Keypoint = GURU_KEYPOINTS.reduce(
-  (keypointEnum, keypointName, index) => {
-    keypointEnum[keypointName] = index;
-    return keypointEnum;
-  },
-  {}
-);
+export const Keypoint = Object.freeze(GURU_KEYPOINTS.reduce((keypointEnum, keypointName, index) => {
+  const lowerCamelCase = snakeToLowerCamelCase(keypointName);
+  keypointEnum[lowerCamelCase] = keypointName;
+  return keypointEnum;
+}, {}));
 
 /**
  * A single object present within a particular frame or image.
@@ -116,6 +117,22 @@ export class FrameObject {
     this.timestamp = timestamp;
     this.boundary = boundary;
     this.keypoints = keypoints;
+  }
+  
+  /**
+   * Get the location of a keypoint for the object at this frame.
+   *
+   * @param keypointName The name of the keypoint whose location will be fetched.
+   * @returns {Position|undefined} The position of the keypoint, or undefined if unknown.
+   */
+  keypointLocation(keypointName) {
+    const snake_case = lowerCamelToSnakeCase(keypointName);
+    if (this.keypoints.hasOwnProperty(snake_case)) {
+      return this.keypoints[snake_case];
+    }
+    else {
+      return undefined;
+    }
   }
 }
 
