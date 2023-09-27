@@ -9,7 +9,7 @@ public class GuruEngine {
   
   let modelStore = ModelStore()
   var lastInferenceTime: Date? = nil
-  var inferenceState = ["objectRegistry": [String: [String: [[String: Any]]]]()]
+  var inferenceState = ["objectRegistry": [String: [[String: Any]]]()]
   
   func withManifest(bundle: Bundle, jsModules: [(String, String)], onnxModels: [String : String], userCode: String, analyzeCode: String, closure: (Manifest) -> Void) {
     
@@ -148,7 +148,7 @@ public class GuruEngine {
     }
     lastInferenceTime = now
     if result != nil, let jsonResult = parseJSON(result!) {
-      self.updateInferenceState(newState: jsonResult["state"] as! [String: [String: [String: [[String: Any]]]]])
+      self.updateInferenceState(newState: jsonResult["state"] as! [String: [String: [[String: Any]]]])
       return jsonResult["result"]
     } else {
       print("processFrame() did not return a valid result!")
@@ -230,21 +230,15 @@ public class GuruEngine {
       return nil
   }
   
-  private func updateInferenceState(newState: [String: [String: [String: [[String: Any]]]]]) {
+  private func updateInferenceState(newState: [String: [String: [[String: Any]]]]) {
     var objectRegistry = self.inferenceState["objectRegistry"]!
     let newObjectRegistry = newState["objectRegistry"]!
-    for (objectType, objects) in newObjectRegistry {
-      if objectRegistry[objectType] == nil {
-        objectRegistry[objectType] = [String: [[String: Any]]]()
+    for (objectId, objectFrames) in newObjectRegistry {
+      if objectRegistry[objectId] == nil {
+        objectRegistry[objectId] = [[String: Any]]()
       }
       
-      for (objectId, objectFrames) in objects {
-        if objectRegistry[objectType]![objectId] == nil {
-          objectRegistry[objectType]![objectId] = [[String: Any]]()
-        }
-        
-        objectRegistry[objectType]![objectId]!.append(contentsOf: objectFrames)
-      }
+      objectRegistry[objectId]!.append(contentsOf: objectFrames)
     }
     
     self.inferenceState["objectRegistry"] = objectRegistry

@@ -188,7 +188,7 @@ export class Frame {
         }
         
         const frameObject = new FrameObject(
-          objectIndex.toString(),
+          `${nextObject.type}-${objectIndex.toString()}`,
           nextObject.type,
           this.timestamp,
           nextObject.boundary,
@@ -339,23 +339,13 @@ export class Frame {
   }
 }
 
-
 /**
- * A class that knows the output of inference across the video and is capable of
- * computing analysis based on it.
+ * Class containing utility methods for performing analysis on human movement videos.
  */
-export class VideoAnalysis {
+export class MovementAnalyzer {
 
-  constructor(frameResults, videoInferenceState) {
-    this.frameResults = frameResults;
-    this.length = frameResults.length;
-    this.videoInferenceState = videoInferenceState;
-  }
-
-  countRepsByKeypointDistance(objectType, objectId, keypoint1, keypoint2) {
-    const frameObjects = this.videoInferenceState.frameObjectsFor(objectType, objectId);
-
-    const jointDistances = frameObjects.map((frameObject) => {
+  static repsByKeypointDistance(objectFrames, keypoint1, keypoint2) {
+    const jointDistances = objectFrames.map((frameObject) => {
       const keypoint1Location = frameObject.keypointLocation(keypoint1);
       const keypoint2Location = frameObject.keypointLocation(keypoint2);
 
@@ -371,17 +361,39 @@ export class VideoAnalysis {
 
     const zScores = smoothedZScore(smoothedData, {lag: 10});
 
-    let repCount = 0;
+    const reps = [];
+    let currentRep = null;
     let lastZScore = 0;
-    zScores.forEach((zScore) => {
+    zScores.forEach((zScore, index) => {
       if (zScore === 1 && lastZScore !== 1) {
-        ++repCount;
+        currentRep = {
+          start: Math.round(objectFrames[index].timestamp),
+        };
+        reps.push(currentRep);
+      }
+      else if (lastZScore === 1 && zScore !== 1) {
+        currentRep.end = Math.round(objectFrames[index].timestamp);
+        currentRep.middle = Math.round((currentRep.start + currentRep.end) / 2);
       }
 
       lastZScore = zScore;
     });
 
-    return repCount;
+    return reps;
+  }
+}
+
+
+/**
+ * A class that knows the output of inference across the video and is capable of
+ * computing analysis based on it.
+ */
+export class VideoAnalysis {
+
+  constructor(frameResults, videoInferenceState) {
+    this.frameResults = frameResults;
+    this.length = frameResults.length;
+    this.videoInferenceState = videoInferenceState;
   }
 
   filter(callback) {
@@ -433,6 +445,10 @@ export class VideoAnalysis {
     }
     return mappedArray;
   }
+  
+  objectFrames(objectId) {
+    return this.videoInferenceState.frameObjects(objectId);
+  }
 
   objectIds(objectType) {
     return this.videoInferenceState.objectIds(objectType);
@@ -481,13 +497,12 @@ export class VideoInferenceState {
   /**
    * Get the FrameObject before and the FrameObject after a given timestamp.
    *
-   * @param objectType The type of the object.
    * @param objectId The id of the object.
    * @param timestamp The timestamp to fetch around.
    * @return {[FrameObject, FrameObject]} The FrameObjects before and after the timestamp.
    */
-  frameObjectsAroundTimestamp(objectType, objectId, timestamp) {
-    const frameObjects = this.frameObjectsFor(objectType, objectId);
+  frameObjectsAroundTimestamp(objectId, timestamp) {
+    const frameObjects = this.frameObjects(objectId);
 
     if (frameObjects.length === 0) {
       return null;
@@ -514,28 +529,23 @@ export class VideoInferenceState {
   /**
    * Gets all of the FrameObjects for a particular object.
    *
-   * @param {string} objectType
-   * @param {string} objectId
+   * @param {string} objectId The id of the object
    * @return {[FrameObject]} The FrameObjects for the object. Empty if object is unknown.
    */
-  frameObjectsFor(objectType, objectId) {
-    if (!this.objectRegistry.hasOwnProperty(objectType) ||
-      !this.objectRegistry[objectType].hasOwnProperty(objectId)) {
+  frameObjects(objectId) {
+    if (!this.objectRegistry.hasOwnProperty(objectId)) {
       return [];
     }
     else {
-      return this.objectRegistry[objectType][objectId]
+      return this.objectRegistry[objectId]
         .map((frameObject) => this._deserializeRegistryObject(frameObject));
     }
   }
 
   objectIds(objectType) {
-    if (this.objectRegistry.hasOwnProperty(objectType)) {
-      return Object.keys(this.objectRegistry[objectType]);
-    }
-    else {
-      return [];
-    }
+    return Object.keys(this.objectRegistry).filter((objectId) => {
+      return this.objectRegistry[objectId][0].objectType === objectType;
+    });
   }
 
   /**
@@ -544,16 +554,13 @@ export class VideoInferenceState {
    * @param {FrameObject} frameObject - The object to register.
    */
   registerFrameObject(frameObject) {
-    if (!this.objectRegistry.hasOwnProperty(frameObject.objectType)) {
-      this.objectRegistry[frameObject.objectType] = {};
+    if (!this.objectRegistry.hasOwnProperty(frameObject._id)) {
+      this.objectRegistry[frameObject._id] = [];
     }
 
-    if (!this.objectRegistry[frameObject.objectType].hasOwnProperty(frameObject._id)) {
-      this.objectRegistry[frameObject.objectType][frameObject._id] = [];
-    }
-    this.objectRegistry[frameObject.objectType][frameObject._id].push(frameObject);
+    this.objectRegistry[frameObject._id].push(frameObject);
 
-    this.objectRegistry[frameObject.objectType][frameObject._id].sort((a, b) => {
+    this.objectRegistry[frameObject._id].sort((a, b) => {
       return a.timestamp - b.timestamp;
     });
   }
