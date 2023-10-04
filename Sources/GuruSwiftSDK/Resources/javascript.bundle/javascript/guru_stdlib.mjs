@@ -118,7 +118,7 @@ export class FrameObject {
     this.boundary = boundary;
     this.keypoints = keypoints;
   }
-  
+
   /**
    * Get the location of a keypoint for the object at this frame.
    *
@@ -186,7 +186,7 @@ export class Frame {
             nextObject.boundary
           );
         }
-        
+
         const frameObject = new FrameObject(
           `${nextObject.type}-${objectIndex.toString()}`,
           nextObject.type,
@@ -194,9 +194,9 @@ export class Frame {
           nextObject.boundary,
           objectKeypoints,
         );
-        
+
         this.state.registerFrameObject(frameObject);
-        
+
         return frameObject;
       })
     );
@@ -445,7 +445,7 @@ export class VideoAnalysis {
     }
     return mappedArray;
   }
-  
+
   objectFrames(objectId) {
     return this.videoInferenceState.frameObjects(objectId);
   }
