@@ -1,4 +1,5 @@
 import {
+  averageKeypointLocation,
   gaussianSmooth,
   GURU_KEYPOINTS,
   lowerCamelToSnakeCase,
@@ -98,6 +99,40 @@ export const Keypoint = Object.freeze(GURU_KEYPOINTS.reduce((keypointEnum, keypo
   keypointEnum[lowerCamelCase] = keypointName;
   return keypointEnum;
 }, {}));
+
+/**
+ * An enumeration of the ways an object can be facing, relative to the camera.
+ */
+export const ObjectFacing = Object.freeze({
+  /**
+   * Object facing the left-side of the frame.
+   */
+  Left: "left",
+  /**
+   * Object facing the right-side of the frame.
+   */
+  Right: "right",
+  /**
+   * Object facing towards the camera.
+   */
+  Toward: "toward",
+  /**
+   * Object facing away from the camera.
+   */
+  Away: "away",
+  /**
+   * Object facing towards the top of the frame.
+   */
+  Up: "up",
+  /**
+   * Object facing towards the bottom of the frame.
+   */
+  Down: "down",
+  /**
+   * Object direction unknown.
+   */
+  Unknown: "unknown",
+});
 
 /**
  * A single object present within a particular frame or image.
@@ -343,7 +378,118 @@ export class Frame {
  * Class containing utility methods for performing analysis on human movement videos.
  */
 export class MovementAnalyzer {
+  /**
+   * Calculate the angle (in degrees) between two keypoints on a person frame by assessing
+   * the slope formed by their positions. This method is useful for determining the relative
+   * orientation of two keypoints and can be used in analyzing postures, movements, or positions.
+   *
+   * The returned angle is based on the inverse tangent of the slope (rise over run)
+   * formed by the vertical and horizontal distances between the two keypoints.
+   *
+   * @param {FrameObject} personFrame - The frame data containing keypoints information.
+   * @param {Keypoint} keypoint1 - The first keypoint used for angle calculation.
+   * @param {Keypoint} keypoint2 - The second keypoint used for angle calculation.
+   * @returns {number} - The calculated angle in degrees between the two keypoints.
+   */
+  static angleBetweenKeypoints(personFrame, keypoint1, keypoint2) {
+    const keypoint1Location = personFrame.keypointLocation(keypoint1);
+    const keypoint2Location = personFrame.keypointLocation(keypoint2);
+    const distance =
+      (keypoint2Location.y - keypoint1Location.y) /
+      (keypoint2Location.x - keypoint1Location.x);
+    return (Math.atan(distance) * 180) / Math.PI;
+  }  
 
+  /**
+   * Determines which direction the person is mostly facing throughout the video.
+   *
+   * @param {[FrameObject]} personFrames - The frames of the person.
+   * @return {ObjectFacing} The direction that the person is mostly facing throughout the video.
+   */
+  static personMostlyFacing(personFrames) {
+    if (this.personMostlyStanding(personFrames)) {
+      const nose = averageKeypointLocation(personFrames, Keypoint.nose);
+      const leftHip = averageKeypointLocation(personFrames, Keypoint.leftHip);
+      const rightHip = averageKeypointLocation(personFrames, Keypoint.rightHip);
+
+      if (nose.x < leftHip.x && nose.x < rightHip.x) {
+        return ObjectFacing.Left;
+      }
+      else if (nose.x > leftHip.x && nose.x > rightHip.x) {
+        return ObjectFacing.Right;
+      }
+      else if (nose.x > rightHip.x && nose.x < leftHip.x) {
+        return ObjectFacing.Toward;
+      }
+      else {
+        return ObjectFacing.Unknown;
+      }
+    }
+    else {
+      const leftShoulder = averageKeypointLocation(personFrames, Keypoint.leftShoulder);
+      const rightShoulder = averageKeypointLocation(personFrames, Keypoint.rightShoulder);
+      const leftWrist = averageKeypointLocation(personFrames, Keypoint.leftWrist);
+      const rightWrist = averageKeypointLocation(personFrames, Keypoint.rightWrist);
+
+      if (leftShoulder.y < leftWrist.y && rightShoulder.y < rightWrist.y) {
+        return ObjectFacing.Down;
+      }
+      else if (leftShoulder.y > leftWrist.y && rightShoulder.y > rightWrist.y) {
+        return ObjectFacing.Up;
+      }
+      else {
+        return ObjectFacing.Unknown;
+      }
+    }
+  }
+
+  /**
+   * Determines if the person is mostly standing upright throughout the video or not.
+   * If false, then they are likely lying down.
+   *
+   * @param {[FrameObject]} personFrames - The frames of the person.
+   * @return {boolean} True if the person is mostly standing up in the video.
+   */
+  static personMostlyStanding(personFrames) {
+    const leftShoulder = averageKeypointLocation(personFrames, Keypoint.leftShoulder);
+    const leftHip = averageKeypointLocation(personFrames, Keypoint.leftHip);
+    const rightShoulder = averageKeypointLocation(personFrames, Keypoint.rightShoulder);
+    const rightHip = averageKeypointLocation(personFrames, Keypoint.rightHip);
+    const leftKnee = averageKeypointLocation(personFrames, Keypoint.leftKnee);
+    const rightKnee = averageKeypointLocation(personFrames, Keypoint.rightKnee);
+
+    const personHorizontal = (
+      (leftShoulder.x > leftHip.x) &&
+      (rightShoulder.x > rightHip.x) &&
+      (leftHip.x > leftKnee.x) &&
+      (rightHip.x > rightKnee.x)
+    ) || (
+      (leftShoulder.x < leftHip.x) &&
+      (rightShoulder.x < rightHip.x) &&
+      (leftHip.x < leftKnee.x) &&
+      (rightHip.x < rightKnee.x)
+    );
+    return !personHorizontal;
+  }  
+
+  /**
+   * Find the repetitions of a movement a person is performing, by measuring
+   * the distance over time between two keypoints. For example, if a person
+   * is performing a squat, then measuring the distance between hips and ankles
+   * will give a good signal for identifying squat reps.
+   *
+   * By default this function will identify when the two keypoints get closer together
+   * and count that as a rep. If reps should instead be counted by the keypoints getting
+   * further apart, set
+   *
+   * @param {[FrameObject]} personFrames - The location of the person in each frame of the video.
+   * @param {Keypoint} keypoint1 - The first keypoint to measure between.
+   * @param {Keypoint} keypoint2 - The second keypoint to measure between.
+   * @param keypointsContract - True if a rep is identified as the distance between the keypoints contracting.
+   *    Set to false if the keypoint distance expands during a rep. Defaults true.
+   * @returns {[]} - An array of objects, each one having a start, middle, and end property that is
+   *    the millisecond timestamp of the boundaries for that rep.
+   */
   static repsByKeypointDistance(objectFrames, keypoint1, keypoint2) {
     const jointDistances = objectFrames.map((frameObject) => {
       const keypoint1Location = frameObject.keypointLocation(keypoint1);

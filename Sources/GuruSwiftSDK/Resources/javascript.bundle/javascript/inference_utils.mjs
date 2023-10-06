@@ -38,6 +38,30 @@ function arrayStdDev(arr) {
   return Math.sqrt(arr.reduce(r, 0.0) / arr.length);
 }
 
+export function averageKeypointLocation(personFrames, keypoint) {
+  let sumX = 0;
+  let sumY = 0;
+  let sumConfidence = 0;
+  let n = 0;
+
+  personFrames.forEach((personFrame) => {
+    const keypointPosition = personFrame.keypointLocation(keypoint);
+
+    if (keypointPosition && !isNaN(keypointPosition.x) && !isNaN(keypointPosition.y)) {
+      ++n;
+      sumX += keypointPosition.x;
+      sumY += keypointPosition.y;
+      sumConfidence += keypointPosition.confidence;
+    }
+  });
+
+  return {
+    x: sumX / n,
+    y: sumY / n,
+    confidence: sumConfidence / n
+  };
+}
+
 function centerToCornersFormat([centerX, centerY, width, height]) {
   return [
     centerX - width / 2,
