@@ -30,12 +30,42 @@ function arrayMean(array) {
   return arraySum(array) / array.length;
 }
 
+export function arrayPeaks(numbers) {
+  let maxima = [];
+  for (let i = 1; i < numbers.length-1; ++i) {
+    if (numbers[i] > numbers[i-1] && numbers[i] > numbers[i+1]) {
+      maxima.push(i);
+    }
+  }
+  return maxima;
+}
+
 function arrayStdDev(arr) {
   const arr_mean = arrayMean(arr);
   const r = function(acc, val) {
     return acc + ((val - arr_mean) * (val - arr_mean))
   };
   return Math.sqrt(arr.reduce(r, 0.0) / arr.length);
+}
+
+export function arrayValuesLessThan(arr, cutoff) {
+  const pred = [];
+  for (let i = 0; i < arr.length; i++) {
+    if (arr[i] <= cutoff) {
+      pred.push(i);
+    }
+  }
+  return pred;
+}  
+
+export function arrayVelocities(numbers) {
+  const velocity = [0];
+
+  for (let i = 1; i < numbers.length; i++) {
+    velocity.push(numbers[i] - numbers[i - 1]);
+  }
+
+  return velocity;
 }
 
 export function averageKeypointLocation(personFrames, keypoint) {
@@ -60,6 +90,30 @@ export function averageKeypointLocation(personFrames, keypoint) {
     y: sumY / n,
     confidence: sumConfidence / n
   };
+}
+
+export function averageKeypointLocations(frameObjects, frameStart = 0, frameEnd = 100000000) {
+  frameEnd = Math.min(frameObjects.length, frameEnd);
+  return new Array(GURU_KEYPOINTS.length).fill(0).map((_, k) => {
+    const middleFrameObjects = frameObjects.slice(frameStart, frameEnd);
+    const sumX = middleFrameObjects
+      .reduce((acc, frameObject) => {
+        const keypointLocation = frameObject.keypointLocation(GURU_KEYPOINTS[k]);
+        if (keypointLocation) {
+          acc += keypointLocation.x;
+        }
+        return acc;
+      }, 0);
+    const sumY = middleFrameObjects
+      .reduce((acc, frameObject) => {
+        const keypointLocation = frameObject.keypointLocation(GURU_KEYPOINTS[k]);
+        if (keypointLocation) {
+          acc += keypointLocation.y;
+        }
+        return acc;
+      }, 0);
+    return [sumX / (frameEnd - frameStart), sumY / (frameEnd - frameStart)];
+  });
 }
 
 function centerToCornersFormat([centerX, centerY, width, height]) {
@@ -191,6 +245,31 @@ function mostLikelyClass(matrix, bboxes, classes, threshold) {
 
   return mostLikelyClasses;
 }
+
+export function movingAverage(arr, windowSize) {
+  const slidingDiff = new Array(arr.length).fill(0);
+  for (let i = 0; i < arr.length; i++) {
+    let sum = 0;
+    for (let j = 0; j < windowSize; j++) {
+      if (i - j >= 0) {
+        sum += arr[i - j];
+      }
+    }
+    slidingDiff[i] = sum / windowSize;
+  }
+  return slidingDiff;
+}
+
+export function normalizeNumbers(timeSeries) {
+  if (timeSeries.length < 2) {
+    return timeSeries;
+  }
+
+  const minValue = Math.min(...timeSeries);
+  const maxValue = Math.max(...timeSeries);
+
+  return timeSeries.map((value) => (value - minValue) / (maxValue - minValue));
+}  
 
 function normalizeImageData(imageData, mean = [0, 0, 0], std = [1, 1, 1]) {
   const data = imageData.data;

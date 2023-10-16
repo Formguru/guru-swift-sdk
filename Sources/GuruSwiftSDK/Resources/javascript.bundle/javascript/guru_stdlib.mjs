@@ -1,14 +1,19 @@
 import {
+  arrayPeaks,
+  arrayValuesLessThan,
+  arrayVelocities,
   averageKeypointLocation,
+  averageKeypointLocations,
   gaussianSmooth,
   GURU_KEYPOINTS,
   lowerCamelToSnakeCase,
+  movingAverage,
+  normalizeNumbers,
   preprocessedImageToTensor,
   preprocessImageForObjectDetection,
   postProcessObjectDetectionResults,
   tensorToMatrix,
   prepareTextsForOwlVit,
-  smoothedZScore,
   snakeToLowerCamelCase,
 } from "./inference_utils";
 
@@ -189,12 +194,13 @@ const _loadModel = _createModelLoader();
  * A single frame from a video, or image, on which Guru can perform inference.
  */
 export class Frame {
-  constructor(state, guruModels, image, hasAlpha) {
+  constructor(state, guruModels, image, timestamp, hasAlpha) {
     this.state = state;
     this.poseModel = _loadModel("pose");
     this.personDetectionModel = _loadModel("person_detection");
     this.guruModels = guruModels;
     this.image = image;
+    this.timestamp = timestamp;
     this.hasAlpha = hasAlpha;
   }
 
@@ -368,9 +374,180 @@ export class Frame {
       const _x = keypoints[i * 2]
       const _y = keypoints[i * 2 + 1]
       const { x, y } = cropped.reverseTransform({x: _x, y: _y});
-      j2p[GURU_KEYPOINTS[i]] = {x, y, score: scores[i]};
+      j2p[GURU_KEYPOINTS[i]] = {x, y, confidence: scores[i]};
     }
     return j2p
+  }
+}
+
+/**
+ * A class that provides general utility methods for analyzing outputs.
+ */
+export class GeneralAnalyzer {
+  /**
+   * Find the signals in a time-series array of numbers, by looking for valleys or peaks.
+   *
+   * @param {[number]} numbers - The time-series array of numbers in which signal will be found.
+   * @param {boolean} findPeaks - True if the function should look for peaks, false if it should look for valleys.
+   * @param {number} prominence - How prominent a peak must be before it is counted.
+   * @param {number} sigma - How much smoothing to apply to the numbers before finding peaks. Higher values smooth more.
+   * @returns {[object]} - An array of objects, each one having a start, middle, and end property, that holds the index
+   *    into numbers of the boundaries of the peak or valley.
+   */
+  static signals(numbers, findPeaks, prominence, sigma) {  
+    function findSignalBoundaries(signal, velocities, prevSignal, nextSignal) {
+      const leftEdge = prevSignal + 1;
+      let repStart = leftEdge;
+      let seenPositive = false;  
+      for (let i = signal - 1; i >= leftEdge; i--) {
+        seenPositive = seenPositive || velocities[i] > 0;
+        if (seenPositive && velocities[i] <= 0) {
+          repStart = i + 1;
+          break;
+        }
+      }
+    
+      const rightEdge = nextSignal - 1;
+      let repEnd = rightEdge;
+      let seenNegative = false;  
+      for (let i = signal + 1; i < rightEdge; i++) {
+        seenNegative = seenNegative || velocities[i] < 0;
+        if (seenNegative && velocities[i] >= 0) {
+          repEnd = i - 1;
+          break;
+        }
+      }
+    
+      return [repStart, signal, repEnd];
+    }  
+  
+    function peakProminences(x, peaks) {
+      let prominences = new Float64Array(peaks.length);
+      let leftMin, rightMin;
+    
+      for (let peakNr = 0; peakNr < peaks.length; peakNr++) {
+        let peak = peaks[peakNr];
+        let iMin = 0;
+        let iMax = x.length - 1;
+    
+        if (!(iMin <= peak && peak <= iMax)) {
+          throw new Error(`Peak ${peak} is not a valid index for 'x'.`);
+        }
+    
+        let i = peak;
+        leftMin = x[peak];
+    
+        while (iMin <= i && x[i] <= x[peak]) {
+          if (x[i] < leftMin) {
+            leftMin = x[i];
+          }
+          i--;
+        }
+    
+        i = peak;
+        rightMin = x[peak];
+    
+        while (i <= iMax && x[i] <= x[peak]) {
+          if (x[i] < rightMin) {
+            rightMin = x[i];
+          }
+          i++;
+        }
+    
+        prominences[peakNr] = x[peak] - Math.max(leftMin, rightMin);
+    
+        if (prominences[peakNr] === 0) {
+          console.warn(`Peak ${peakNr} has a prominence of 0`);
+        }
+      }
+    
+      return Array.from(prominences)
+    }
+    
+    if (!findPeaks) {
+      numbers = numbers.map((nextX) => 1.0 - nextX);
+    }
+  
+    const smoothed = gaussianSmooth(numbers, sigma);
+  
+    const normalized = normalizeNumbers(smoothed);
+  
+    const possiblePeaks = arrayPeaks(normalized);
+  
+    const prominences = peakProminences(normalized, possiblePeaks);
+
+    const peaks = possiblePeaks.filter((_, peakIndex) => {
+      return prominences[peakIndex] >= prominence;
+    });
+  
+    const velocities = arrayVelocities(normalized);
+  
+    return peaks.map((peak, index) => {
+      const prevPeak = index === 0 ? -1 : peaks[index - 1];
+      const nextPeak = index === peaks.length - 1 ? velocities.length - 1 : peaks[index + 1];
+      const boundaries = findSignalBoundaries(peak, velocities, prevPeak, nextPeak);
+  
+      return {
+        start: boundaries[0],
+        middle: boundaries[1],
+        end: boundaries[2],
+      };
+    });
+  }
+
+  static estimateStartAndEndTrim(frameObjects, threshold = 0.75) {
+    function calculateRunningDifference(frameObjects, midXY) {
+      const runningDiff = frameObjects.map((frameObject) => {
+        return Object.keys(frameObject.keypoints).map((keypointName, keypointIndex) => {
+          const location = frameObject.keypointLocation(keypointName);
+          return Math.sqrt(
+            Math.pow(location.x - midXY[keypointIndex][0], 2) +
+            Math.pow(location.y - midXY[keypointIndex][1], 2)
+          );
+        });
+      });
+      return runningDiff.map((frame) => frame.reduce((acc, val) => acc + val, 0));
+    }
+    
+    function calculateCutoff(runningDiff, threshold) {
+      const sortedArr = runningDiff.slice().sort((a, b) => a - b);
+      const index = (sortedArr.length - 1) * threshold;
+      const lower = Math.floor(index);
+      const fraction = index - lower;
+    
+      if (lower + 1 < sortedArr.length) {
+        return sortedArr[lower] + fraction * (sortedArr[lower + 1] - sortedArr[lower]);
+      } else {
+        return sortedArr[lower];
+      }
+    }
+    
+    const numFrames = frameObjects.length;
+    const midXY = averageKeypointLocations(
+      frameObjects,
+      Math.floor(frameObjects.length / 3),
+      Math.floor((2 * frameObjects.length) / 3),
+    );
+    const runningDiff = calculateRunningDifference(frameObjects, midXY);
+    const cutoff = calculateCutoff(runningDiff, threshold);
+    const slidingDiff = movingAverage(runningDiff, 4);
+  
+    const pred = arrayValuesLessThan(slidingDiff, cutoff);
+    if (pred.length < 2) {
+      return [0, numFrames - 1];
+    }
+  
+    let start = pred[0];
+    let end = pred[pred.length - 1];
+    if (start > Math.floor(numFrames / 3) || end < Math.floor((2 * numFrames) / 3)) {
+      start = 0;
+      end = numFrames - 1;
+    }
+  
+    return [
+      frameObjects[start].timestamp,
+      frameObjects[frameObjects.length - 1].timestamp - frameObjects[end].timestamp,
+    ];
   }
 }
 
@@ -485,13 +662,52 @@ export class MovementAnalyzer {
    * @param {[FrameObject]} personFrames - The location of the person in each frame of the video.
    * @param {Keypoint} keypoint1 - The first keypoint to measure between.
    * @param {Keypoint} keypoint2 - The second keypoint to measure between.
-   * @param keypointsContract - True if a rep is identified as the distance between the keypoints contracting.
+   * @param {boolean} keypointsContract - True if a rep is identified as the distance between the keypoints contracting.
    *    Set to false if the keypoint distance expands during a rep. Defaults true.
+   * @param {number} threshold - The distance required between the keypoints before a rep is counted.
+   *    This number is abstract, it does not translate directly to pixel distance.
+   * @param {number} smoothing - How much smoothing should be applied to keypoints before reps are counted.
+   *    Higher values will apply more smoothing, which can help with lower quality or obscured videos.
+   * @param {number} ignoreStartMs - The number of milliseconds to ignore at the start of the video when counting reps. Default 0.
+   * @param {number} ignoreEndMs - The number of milliseconds to ignore at the end of the video when counting reps. Default 0.
    * @returns {[]} - An array of objects, each one having a start, middle, and end property that is
    *    the millisecond timestamp of the boundaries for that rep.
    */
-  static repsByKeypointDistance(objectFrames, keypoint1, keypoint2) {
-    const jointDistances = objectFrames.map((frameObject) => {
+  static repsByKeypointDistance(
+    personFrames, 
+    keypoint1, 
+    keypoint2, { 
+      keypointsContract = true,
+      threshold = 0.2,
+      smoothing = 2.0,
+      ignoreStartMs = null,
+      ignoreEndMs = null,
+    } = {}) {
+    if (ignoreStartMs === null && ignoreEndMs === null) {
+      [ignoreStartMs, ignoreEndMs] = GeneralAnalyzer.estimateStartAndEndTrim(personFrames);
+    }
+    if (ignoreStartMs === null) {
+      ignoreStartMs = 0;
+    }
+    if (ignoreEndMs === null) {
+      ignoreEndMs = 0;
+    }
+
+    const start = ignoreStartMs;
+    const end = Math.max(
+      Math.max(...personFrames.map((frame) => frame.timestamp)) - ignoreEndMs, 
+      start + 1
+    );
+    let firstFrameIndex = 0;
+    const jointDistances = personFrames.map((frameObject) => {
+      if (frameObject.timestamp < start) {
+        ++firstFrameIndex;
+        return null;
+      }
+      else if (frameObject.timestamp > end) {
+        return null;
+      }
+
       const keypoint1Location = frameObject.keypointLocation(keypoint1);
       const keypoint2Location = frameObject.keypointLocation(keypoint2);
 
@@ -503,29 +719,15 @@ export class MovementAnalyzer {
       }
     }).filter((distance) => distance !== null);
 
-    const smoothedData = gaussianSmooth(jointDistances, 1.0);
+    const signals = GeneralAnalyzer.signals(jointDistances, !keypointsContract, threshold, smoothing);
 
-    const zScores = smoothedZScore(smoothedData, {lag: 10});
-
-    const reps = [];
-    let currentRep = null;
-    let lastZScore = 0;
-    zScores.forEach((zScore, index) => {
-      if (zScore === 1 && lastZScore !== 1) {
-        currentRep = {
-          start: Math.round(objectFrames[index].timestamp),
-        };
-        reps.push(currentRep);
-      }
-      else if (lastZScore === 1 && zScore !== 1) {
-        currentRep.end = Math.round(objectFrames[index].timestamp);
-        currentRep.middle = Math.round((currentRep.start + currentRep.end) / 2);
-      }
-
-      lastZScore = zScore;
+    return signals.map((signal) => {
+      return {
+        startFrame: personFrames[signal.start + firstFrameIndex],
+        middleFrame: personFrames[signal.middle + firstFrameIndex],
+        endFrame: personFrames[signal.end + firstFrameIndex],
+      };
     });
-
-    return reps;
   }
 }
 
