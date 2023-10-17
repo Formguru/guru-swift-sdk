@@ -668,8 +668,10 @@ export class MovementAnalyzer {
    *    This number is abstract, it does not translate directly to pixel distance.
    * @param {number} smoothing - How much smoothing should be applied to keypoints before reps are counted.
    *    Higher values will apply more smoothing, which can help with lower quality or obscured videos.
-   * @param {number} ignoreStartMs - The number of milliseconds to ignore at the start of the video when counting reps. Default 0.
-   * @param {number} ignoreEndMs - The number of milliseconds to ignore at the end of the video when counting reps. Default 0.
+   * @param {number} ignoreStartMs - The number of milliseconds to ignore at the start of the video when counting reps.
+   *    If null, attempts to estimate the start time. Default null.
+   * @param {number} ignoreEndMs - The number of milliseconds to ignore at the end of the video when counting reps.
+   *    If null, attempts to estimate the end time. Default null.
    * @returns {[]} - An array of objects, each one having a start, middle, and end property that is
    *    the millisecond timestamp of the boundaries for that rep.
    */
@@ -683,14 +685,14 @@ export class MovementAnalyzer {
       ignoreStartMs = null,
       ignoreEndMs = null,
     } = {}) {
-    if (ignoreStartMs === null && ignoreEndMs === null) {
-      [ignoreStartMs, ignoreEndMs] = GeneralAnalyzer.estimateStartAndEndTrim(personFrames);
-    }
-    if (ignoreStartMs === null) {
-      ignoreStartMs = 0;
-    }
-    if (ignoreEndMs === null) {
-      ignoreEndMs = 0;
+    if (!ignoreStartMs || !ignoreEndMs) {
+      const [estimatedStartMs, estimatedEndMs] = GeneralAnalyzer.estimateStartAndEndTrim(personFrames);
+      if (!ignoreStartMs) {
+        ignoreStartMs = estimatedStartMs;
+      }
+      if (!ignoreEndMs) {
+        ignoreEndMs = estimatedEndMs;
+      }
     }
 
     const start = ignoreStartMs;
