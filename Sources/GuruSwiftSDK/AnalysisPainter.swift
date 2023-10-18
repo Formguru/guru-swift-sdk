@@ -62,26 +62,87 @@ public class AnalysisPainter {
   
   @discardableResult public func boundingBox(
     box: [String: [String: Double]],
-    color: [String: Int],
-    width: Double) -> AnalysisPainter {
-      self.context.setStrokeColor(self.toUIColor(color: color).cgColor)
-      
-      let topLeft = jsonPointToScreenPoint(box["topLeft"]!)!
-      let bottomRight = jsonPointToScreenPoint(box["bottomRight"]!)!
-      context.addPath(
-        UIBezierPath(rect: CGRect(
-          x: topLeft.x,
-          y: topLeft.y,
-          width: bottomRight.x - topLeft.x,
-          height: bottomRight.y - topLeft.y
-        )).cgPath
-      )
-      
-      context.setLineWidth(width)
-      context.strokePath()
-      
-      return self
+    borderColor: [String: Int]?,
+    backgroundColor: [String: Int]?,
+    width: Double,
+    alpha: Double) -> AnalysisPainter {
+    if (borderColor != nil) {
+      self.context.setStrokeColor(self.toUIColor(color: borderColor!, alpha: alpha).cgColor)
     }
+    if (backgroundColor != nil) {
+      self.context.setFillColor(self.toUIColor(color: backgroundColor!, alpha: alpha).cgColor)
+    }
+    
+    let topLeft = jsonPointToScreenPoint(box["topLeft"]!)!
+    let bottomRight = jsonPointToScreenPoint(box["bottomRight"]!)!
+    context.addPath(
+      UIBezierPath(rect: CGRect(
+        x: topLeft.x,
+        y: topLeft.y,
+        width: bottomRight.x - topLeft.x,
+        height: bottomRight.y - topLeft.y
+      )).cgPath
+    )
+    
+    context.setLineWidth(width)
+    if (backgroundColor != nil) {
+      context.fillPath()
+    }
+    else {
+      context.strokePath()
+    }
+    
+    return self
+  }
+  
+  @discardableResult public func circle(
+    center: [String: Double],
+    radius: Int,
+    color: [String: Int],
+    params: [String: Any]?
+  ) -> AnalysisPainter {
+    let uiColor = self.toUIColor(color: color, alpha: params?["alpha"] as? Double ?? 1.0)
+    
+    self.context.setFillColor(uiColor.cgColor)
+    self.context.setStrokeColor(uiColor.cgColor)
+    self.context.setLineWidth(params?["width"] as? Double ?? 2.0)
+
+    let centerScreen = jsonPointToScreenPoint(center)!
+    self.context.addEllipse(in: CGRect(
+      x: Int(centerScreen.x) - radius,
+      y: Int(centerScreen.y) - radius,
+      width: radius * 2, height: radius * 2
+    ))
+
+    if (params?["filled"] as? Bool ?? true) {
+      self.context.drawPath(using: .fillStroke)
+    }
+    else {
+      self.context.drawPath(using: .stroke)
+    }
+    
+    return self
+  }
+  
+  @discardableResult public func line(
+    from: [String: Double],
+    to: [String: Double],
+    color: [String: Int],
+    params: [String: Any]?
+  ) -> AnalysisPainter {
+    let uiColor = self.toUIColor(color: color, alpha: params?["alpha"] as? Double ?? 1.0)
+    
+    self.keypointPainter.paintKeypointConnector(
+      from: self.jsonPointToKeypoint(from)!,
+      to: self.jsonPointToKeypoint(to)!,
+      keypointColor: uiColor,
+      connectorColor: uiColor,
+      keypointSize: 0,
+      connectorWidth: params?["width"] as? Double ?? 2.0
+    )
+    
+    return self
+  }
   
   @discardableResult public func skeleton(
     keypoints: [String: [String: Double]],
@@ -115,19 +176,42 @@ public class AnalysisPainter {
     return self
   }
   
-  private func toUIColor(color: [String: Int]) -> UIColor {
+  @discardableResult public func text(
+    text: String,
+    position: [String: Double],
+    color: [String: Int],
+    params: [String: Any]?
+  ) -> AnalysisPainter {
+    let uiColor = self.toUIColor(color: color, alpha: params?["alpha"] as? Double ?? 1.0)
+    
+    var position = self.jsonPointToKeypoint(position)!
+    if let padding = params?["padding"] as? Int {
+      position = Keypoint(x: position.x + Double(padding), y: position.y + Double(padding))
+    }
+    
+    self.keypointPainter.paintText(
+      position: position,
+      text: text,
+      color: uiColor,
+      fontSize: params?["fontSize"] as? Int ?? 24
+    )
+    
+    return self
+  }
+  
+  private func toUIColor(color: [String: Int], alpha: Double = 1.0) -> UIColor {
     return UIColor(
       red: CGFloat(color["r"]!),
       green: CGFloat(color["g"]!),
       blue: CGFloat(color["b"]!),
-      alpha: CGFloat(color["a"] ?? 1)
+      alpha: alpha
     )
   }
   
   private func jsonPointToKeypoint(_ jsonPoint: [String: Double]) -> Keypoint? {
-    if let score = jsonPoint["score"] ?? jsonPoint["confidence"],
-       let x = jsonPoint["x"],
+    if let x = jsonPoint["x"],
        let y = jsonPoint["y"] {
+      let score = jsonPoint["score"] ?? jsonPoint["confidence"] ?? 1.0
       return Keypoint(x: x, y: y, score: score)
     }
     return nil

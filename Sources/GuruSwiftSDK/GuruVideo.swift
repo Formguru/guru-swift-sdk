@@ -57,12 +57,42 @@ public class GuruVideo {
     let drawBoundingBox: @convention(block) ([String: Any], [String: Int], Double) -> Bool = { object, color, width in
       painter.boundingBox(
         box: object["boundary"] as! [String: [String: Double]],
-        color: color,
-        width: width.isNaN ? 2.0 : width
+        borderColor: color,
+        backgroundColor: nil,
+        width: width.isNaN ? 2.0 : width,
+        alpha: 1.0
       )
       return true
     }
     self.renderJSContext.setObject(drawBoundingBox, forKeyedSubscript: "drawBoundingBox" as NSString)
+    
+    let drawCircle: @convention(block) ([String: Double], Int, [String: Int], [String: Any]?) -> Bool = { position, radius, color, params in
+      painter.circle(center: position, radius: radius, color: color, params: params)
+      return true
+    }
+    self.renderJSContext.setObject(drawCircle, forKeyedSubscript: "drawCircle" as NSString)
+    
+    let drawLine: @convention(block) ([String: Double], [String: Double], [String: Int], [String: Any]?) -> Bool = { from, to, color, params in
+      painter.line(from: from, to: to, color: color, params: params)
+      return true
+    }
+    self.renderJSContext.setObject(drawLine, forKeyedSubscript: "drawLine" as NSString)
+    
+    let drawRect: @convention(block) ([String: Double], [String: Double], [String: Any]?) -> Bool = { topLeft, bottomRight, params in
+      painter.boundingBox(
+        box: [
+          "topLeft": topLeft,
+          "bottomRight": bottomRight
+        ],
+        borderColor: params?["borderColor"] as? [String: Int],
+        backgroundColor: params?["backgroundColor"] as? [String: Int],
+        width: params?["width"] as? Double ?? 2.0,
+        alpha: params?["alpha"] as? Double ?? 1.0
+      )
+      return true
+    }
+    self.renderJSContext.setObject(drawRect, forKeyedSubscript: "drawRect" as NSString)
+    
     let drawSkeleton: @convention(block) ([String: Any], [String: Int], [String: Int], Double, Double) -> Bool = { object, lineColor, keypointColor, lineWidth, keypointRadius in
       guard let keypoints = object["keypoints"] as? [String: [String: Double]] else {
         return false
@@ -77,6 +107,12 @@ public class GuruVideo {
       return true
     }
     self.renderJSContext.setObject(drawSkeleton, forKeyedSubscript: "drawSkeleton" as NSString)
+    
+    let drawText: @convention(block) (String, [String: Double], [String: Int], [String: Any]?) -> Bool = { text, position, color, params in
+      painter.text(text: text, position: position, color: color, params: params)
+      return true
+    }
+    self.renderJSContext.setObject(drawText, forKeyedSubscript: "drawText" as NSString)
 
     let render = self.renderJSContext.objectForKeyedSubscript("invoke")
     render!.call(withArguments: [analysis.processResult])
@@ -123,7 +159,11 @@ public class GuruVideo {
 class FrameCanvas {
   constructor() {
     this.drawBoundingBox = drawBoundingBox;
+    this.drawCircle = drawCircle;
+    this.drawLine = drawLine;
+    this.drawRect = drawRect;
     this.drawSkeleton = drawSkeleton;
+    this.drawText = drawText;
   }
 }
 
@@ -132,6 +172,14 @@ class Color {
     this.r = r;
     this.g = g;
     this.b = b;
+  }
+}
+
+class Position {
+  constructor(x, y, confidence) {
+    this.x = x;
+    this.y = y;
+    this.confidence = confidence;
   }
 }
 

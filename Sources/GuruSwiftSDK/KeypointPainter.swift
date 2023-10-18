@@ -107,7 +107,7 @@ public class KeypointPainter {
     
     let angleDegrees = from.angleBetweenRadians(center: center, to: to, clockwise: clockwise)
     paintText(
-      position: framePosition(center) + CGPoint(x: 0, y: 40),
+      position: Keypoint(x: center.x, y: center.y + 0.03),
       text: String(abs(Int(rad2deg(angleDegrees)))) + "º",
       color: foregroundColor,
       fontSize: fontSize,
@@ -126,7 +126,7 @@ public class KeypointPainter {
   /// - Parameter rightOfPosition: True if the text should start at `position`, false if it should end at `position`.
   /// - Returns: This same instance of `KeypointPainter`, to allow for call-chaining.
   @discardableResult public func paintText(
-    position: CGPoint,
+    position: Keypoint,
     text: String,
     color: UIColor = UIColor.white,
     fontSize: Int = 48,
@@ -139,7 +139,7 @@ public class KeypointPainter {
 
     let line = CTLineCreateWithAttributedString(attributedString)
 
-    context.textPosition = position
+    context.textPosition = position.toScreenPoint(width: self.width, height: self.height)
     if (!rightOfPosition) {
       context.textPosition.x -= CTLineGetImageBounds(line, context).width
     }
