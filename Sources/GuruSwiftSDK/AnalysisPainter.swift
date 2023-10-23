@@ -67,22 +67,20 @@ public class AnalysisPainter {
     width: Double,
     alpha: Double) -> AnalysisPainter {
     if (borderColor != nil) {
-      self.context.setStrokeColor(self.toUIColor(color: borderColor!, alpha: alpha).cgColor)
+      self.toUIColor(color: borderColor!, alpha: alpha).setStroke()
     }
     if (backgroundColor != nil) {
-      self.context.setFillColor(self.toUIColor(color: backgroundColor!, alpha: alpha).cgColor)
+      self.toUIColor(color: backgroundColor!, alpha: alpha).setFill()
     }
     
     let topLeft = jsonPointToScreenPoint(box["topLeft"]!)!
     let bottomRight = jsonPointToScreenPoint(box["bottomRight"]!)!
-    context.addPath(
-      UIBezierPath(rect: CGRect(
-        x: topLeft.x,
-        y: topLeft.y,
-        width: bottomRight.x - topLeft.x,
-        height: bottomRight.y - topLeft.y
-      )).cgPath
-    )
+    context.addRect(CGRect(
+      x: topLeft.x,
+      y: topLeft.y,
+      width: bottomRight.x - topLeft.x,
+      height: bottomRight.y - topLeft.y
+    ))
     
     context.setLineWidth(width)
     if (backgroundColor != nil) {
@@ -201,9 +199,9 @@ public class AnalysisPainter {
   
   private func toUIColor(color: [String: Int], alpha: Double = 1.0) -> UIColor {
     return UIColor(
-      red: CGFloat(color["r"]!),
-      green: CGFloat(color["g"]!),
-      blue: CGFloat(color["b"]!),
+      red: CGFloat(Double(color["r"]!) / 255.0),
+      green: CGFloat(Double(color["g"]!) / 255.0),
+      blue: CGFloat(Double(color["b"]!) / 255.0),
       alpha: alpha
     )
   }
