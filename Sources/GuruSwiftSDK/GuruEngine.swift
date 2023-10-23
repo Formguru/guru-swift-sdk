@@ -9,7 +9,7 @@ public class GuruEngine {
   
   let modelStore = ModelStore()
   var lastInferenceTime: Date? = nil
-  var inferenceState = ["objectRegistry": [String: [[String: Any]]]()]
+  let startTime = Date()
   
   func withManifest(bundle: Bundle, jsModules: [(String, String)], onnxModels: [String : String], userCode: String, analyzeCode: String, closure: (Manifest) -> Void) {
     
@@ -112,7 +112,6 @@ public class GuruEngine {
   public func analyzeVideo(frameResults: Any) -> Any? {
     let frameResultsDupe = strdup(self.toJSONString([
       "frameResults": frameResults,
-      "state": self.inferenceState,
     ]))
     let frameResultsPtr = UnsafePointer(frameResultsDupe)
     defer {
@@ -131,7 +130,8 @@ public class GuruEngine {
 
   public func processFrame(image: UIImage) -> Any? {
     var result: UnsafePointer<CChar>? = nil
-    self.withRgbImage(image: image, { imagePtr in
+    let frameTimestamp = Date().timeIntervalSince(self.startTime)
+    self.withRgbFrame(image: image, timestamp: Int(frameTimestamp * 1000), { imagePtr in
       var state = EngineState(target_fps: 1.0)
       withUnsafeMutablePointer(to: &state) { enginePtr in
         let msElapsed = measureInMilliseconds {
@@ -148,8 +148,7 @@ public class GuruEngine {
     }
     lastInferenceTime = now
     if result != nil, let jsonResult = parseJSON(result!) {
-      self.updateInferenceState(newState: jsonResult["state"] as! [String: [String: [[String: Any]]]])
-      return jsonResult["result"]
+      return jsonResult
     } else {
       print("processFrame() did not return a valid result!")
       return nil
@@ -230,21 +229,7 @@ public class GuruEngine {
       return nil
   }
   
-  private func updateInferenceState(newState: [String: [String: [[String: Any]]]]) {
-    var objectRegistry = self.inferenceState["objectRegistry"]!
-    let newObjectRegistry = newState["objectRegistry"]!
-    for (objectId, objectFrames) in newObjectRegistry {
-      if objectRegistry[objectId] == nil {
-        objectRegistry[objectId] = [[String: Any]]()
-      }
-      
-      objectRegistry[objectId]!.append(contentsOf: objectFrames)
-    }
-    
-    self.inferenceState["objectRegistry"] = objectRegistry
-  }
-  
-  private func withRgbImage(image: UIImage, _ closure: (UnsafeMutablePointer<RgbImage>) -> Void) {
+  private func withRgbFrame(image: UIImage, timestamp: Int, _ closure: (UnsafeMutablePointer<RgbFrame>) -> Void) {
     guard let cgImage = image.cgImage else {
       fatalError("Failed to read image from camera")
     }
@@ -252,7 +237,7 @@ public class GuruEngine {
     defer {
       pixelsPtr.deallocate()
     }
-    var rgbImg = RgbImage(data: pixelsPtr, width: Int32(cgImage.width), height: Int32(cgImage.height), channel_order: BGRA)
+    var rgbImg = RgbFrame(data: pixelsPtr, width: Int32(cgImage.width), height: Int32(cgImage.height), timestamp: timestamp, channel_order: BGRA)
     withUnsafeMutablePointer(to: &rgbImg, { ptr in
       closure(ptr)
     })

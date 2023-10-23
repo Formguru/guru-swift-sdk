@@ -115,7 +115,12 @@ public class GuruVideo {
     self.renderJSContext.setObject(drawText, forKeyedSubscript: "drawText" as NSString)
 
     let render = self.renderJSContext.objectForKeyedSubscript("invoke")
-    render!.call(withArguments: [analysis.processResult])
+    render!.call(withArguments: [
+      analysis.processResult,
+      [
+        "analyzeResult": analysis.result
+      ]
+    ])
     
     return painter.finish()
   }
@@ -185,9 +190,9 @@ class Position {
 
 \(self.schema["renderCode"] as! String)
 
-function invoke(processResult) {
+function invoke(processResult, args) {
   console.log = log;
-  renderFrame(new FrameCanvas(), processResult);
+  renderFrame(new FrameCanvas(), processResult, args);
 }
 """
     context.evaluateScript(code)
