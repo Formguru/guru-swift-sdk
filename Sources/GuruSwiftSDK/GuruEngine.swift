@@ -9,7 +9,6 @@ public class GuruEngine {
   
   let modelStore = ModelStore()
   var lastInferenceTime: Date? = nil
-  let startTime = Date()
   
   func withManifest(bundle: Bundle, jsModules: [(String, String)], onnxModels: [String : String], userCode: String, analyzeCode: String, closure: (Manifest) -> Void) {
     
@@ -128,10 +127,9 @@ public class GuruEngine {
     }
   }
 
-  public func processFrame(image: UIImage) -> Any? {
+  public func processFrame(image: UIImage, timestamp: Int) -> Any? {
     var result: UnsafePointer<CChar>? = nil
-    let frameTimestamp = Date().timeIntervalSince(self.startTime)
-    self.withRgbFrame(image: image, timestamp: Int(frameTimestamp * 1000), { imagePtr in
+    self.withRgbFrame(image: image, timestamp: timestamp, { imagePtr in
       var state = EngineState(target_fps: 1.0)
       withUnsafeMutablePointer(to: &state) { enginePtr in
         let msElapsed = measureInMilliseconds {

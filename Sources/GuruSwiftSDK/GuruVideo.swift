@@ -10,6 +10,7 @@ public class GuruVideo {
   var previousInferences: [Any] = []
   var lastAnalysis: GuruAnalysis?
   var renderJSContext: JSContext!
+  let startTime = Date()
   
   public init(apiKey: String, schemaId: String) async throws {
     self.apiKey = apiKey
@@ -30,7 +31,7 @@ public class GuruVideo {
   public func newFrame(frame: UIImage) -> GuruAnalysis? {
     if (!inferenceLock.try()) {
       if (lastAnalysis == nil) {
-        return GuruAnalysis(result: nil, processResult: [:])
+        return GuruAnalysis(result: nil, processResult: [:], frameTimestamp: 0)
       }
       else {
         return lastAnalysis!
@@ -39,13 +40,14 @@ public class GuruVideo {
     defer { self.inferenceLock.unlock() }
 
     // TODO: how should we handle errors?
-    guard let inferenceResult = self.guruEngine.processFrame(image: frame) else {
+    let frameTimestamp = Int(Date().timeIntervalSince(self.startTime) * 1000)
+    guard let inferenceResult = self.guruEngine.processFrame(image: frame, timestamp: frameTimestamp) else {
       return nil
     }
     
     self.previousInferences.append(inferenceResult)
     let analysisResult = self.analyze(previousInferences)
-    let analysis = GuruAnalysis(result: analysisResult, processResult: inferenceResult)
+    let analysis = GuruAnalysis(result: analysisResult, processResult: inferenceResult, frameTimestamp: frameTimestamp)
     
     self.lastAnalysis = analysis
     return analysis
@@ -116,6 +118,7 @@ public class GuruVideo {
 
     let render = self.renderJSContext.objectForKeyedSubscript("invoke")
     render!.call(withArguments: [
+      analysis.frameTimestamp,
       analysis.processResult,
       [
         "analyzeResult": analysis.result
@@ -162,7 +165,8 @@ public class GuruVideo {
     
     let code = """
 class FrameCanvas {
-  constructor() {
+  constructor(timestamp) {
+    this.timestamp = timestamp;
     this.drawBoundingBox = drawBoundingBox;
     this.drawCircle = drawCircle;
     this.drawLine = drawLine;
@@ -190,9 +194,9 @@ class Position {
 
 \(self.schema["renderCode"] as! String)
 
-function invoke(processResult, args) {
+function invoke(timestamp, processResult, args) {
   console.log = log;
-  renderFrame(new FrameCanvas(), processResult, args);
+  renderFrame(new FrameCanvas(timestamp), processResult, args);
 }
 """
     context.evaluateScript(code)
