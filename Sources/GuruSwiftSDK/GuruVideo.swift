@@ -184,6 +184,36 @@ class Color {
   }
 }
 
+const Keypoint = Object.freeze([
+  "nose",
+  "left_eye",
+  "right_eye",
+  "left_ear",
+  "right_ear",
+  "left_shoulder",
+  "right_shoulder",
+  "left_elbow",
+  "right_elbow",
+  "left_wrist",
+  "right_wrist",
+  "left_hip",
+  "right_hip",
+  "left_knee",
+  "right_knee",
+  "left_ankle",
+  "right_ankle",
+  "left_heel",
+  "right_heel",
+  "left_toe",
+  "right_toe",
+].reduce((keypointEnum, keypointName, index) => {
+  const lowerCamelCase = keypointName.replace(/_([a-z])/g, function (match, letter) {
+    return letter.toUpperCase();
+  });
+  keypointEnum[lowerCamelCase] = keypointName;
+  return keypointEnum;
+}, {}));
+
 class Position {
   constructor(x, y, confidence) {
     this.x = x;

@@ -62,10 +62,10 @@ public class AnalysisPainter {
   
   @discardableResult public func boundingBox(
     box: [String: [String: Double]],
-    borderColor: [String: Int]?,
-    backgroundColor: [String: Int]?,
-    width: Double,
-    alpha: Double) -> AnalysisPainter {
+    borderColor: [String: Int]? = nil,
+    backgroundColor: [String: Int]? = nil,
+    width: Double? = nil,
+    alpha: Double = 1.0) -> AnalysisPainter {
     if (borderColor != nil) {
       self.toUIColor(color: borderColor!, alpha: alpha).setStroke()
     }
@@ -82,8 +82,11 @@ public class AnalysisPainter {
       height: bottomRight.y - topLeft.y
     ))
     
-    context.setLineWidth(width)
-    if (backgroundColor != nil) {
+    if let width = width {
+      context.setLineWidth(width)
+    }
+
+    if let backgroundColor = backgroundColor {
       context.fillPath()
     }
     else {
@@ -180,18 +183,43 @@ public class AnalysisPainter {
     color: [String: Int],
     params: [String: Any]?
   ) -> AnalysisPainter {
-    let uiColor = self.toUIColor(color: color, alpha: params?["alpha"] as? Double ?? 1.0)
+    let alpha = params?["alpha"] as? Double ?? 1.0
+    let uiColor = self.toUIColor(color: color, alpha: alpha)
     
-    var position = self.jsonPointToKeypoint(position)!
+    var paddingX = 0.0, paddingY = 0.0
     if let padding = params?["padding"] as? Int {
-      position = Keypoint(x: position.x + Double(padding), y: position.y + Double(padding))
+      paddingX = Double(padding) / self.frame.size.width
+      paddingY = Double(padding) / self.frame.size.height
     }
     
+    let fontSize = params?["fontSize"] as? Int ?? 24
+    
+    if let backgroundColor = params?["backgroundColor"] as? [String: Int] {
+      let textSize = text.size(withAttributes: [
+        .font: self.keypointPainter.getFont(fontSize: fontSize),
+      ])
+      self.boundingBox(
+        box: [
+          "topLeft": position,
+          "bottomRight": [
+            "x": position["x"]! + (textSize.width / self.frame.size.width) + paddingX * 2,
+            "y": position["y"]! + (textSize.height / self.frame.size.height) + paddingY * 2
+          ],
+        ],
+        backgroundColor: backgroundColor,
+        alpha: alpha
+      )
+    }
+    
+    let textPosition = self.jsonPointToKeypoint([
+      "x": position["x"]! + paddingX,
+      "y": position["y"]! + paddingY
+    ])!
     self.keypointPainter.paintText(
-      position: position,
+      position: textPosition,
       text: text,
       color: uiColor,
-      fontSize: params?["fontSize"] as? Int ?? 24
+      fontSize: fontSize
     )
     
     return self

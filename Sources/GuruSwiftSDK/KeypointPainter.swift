@@ -19,6 +19,10 @@ public class KeypointPainter {
     self.height = height
   }
   
+  public func getFont(fontSize: Int) -> CTFont {
+    return CTFontCreateWithName("SF" as CFString, Double(fontSize), nil)
+  }
+  
   /// Paints a marker at the location of the given keypoint, if it
   /// was found in the inference.
   ///
@@ -131,24 +135,23 @@ public class KeypointPainter {
     color: UIColor = UIColor.white,
     fontSize: Int = 48,
     rightOfPosition: Bool = true) -> KeypointPainter {
-    context.saveGState()
+      let font = self.getFont(fontSize: fontSize)
 
-    let font = CTFontCreateWithName("SF" as CFString, Double(fontSize), nil)
+      let textAttributes: [NSAttributedString.Key : Any] = [
+        .font: font,
+        .foregroundColor: color,
+      ]
+      let textBounds = text.size(withAttributes: textAttributes)
+      let screenPosition = position.toScreenPoint(width: self.width, height: self.height)
 
-    let attributedString = NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: color])
-
-    let line = CTLineCreateWithAttributedString(attributedString)
-
-    context.textPosition = position.toScreenPoint(width: self.width, height: self.height)
-    if (!rightOfPosition) {
-      context.textPosition.x -= CTLineGetImageBounds(line, context).width
-    }
-
-    CTLineDraw(line, context)
-
-    context.restoreGState()
-    
-    return self
+      NSAttributedString(string: text, attributes: textAttributes).draw(in: CGRect(
+        x: screenPosition.x,
+        y: screenPosition.y,
+        width: textBounds.width,
+        height: textBounds.height
+      ))
+      
+      return self
   }
   
   fileprivate func framePosition(_ keypoint: Keypoint) -> CGPoint {
