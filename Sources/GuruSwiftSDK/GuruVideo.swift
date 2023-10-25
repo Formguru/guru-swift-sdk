@@ -115,13 +115,19 @@ public class GuruVideo {
       return true
     }
     self.renderJSContext.setObject(drawText, forKeyedSubscript: "drawText" as NSString)
+    
+    let drawTriangle: @convention(block) ([String: Double], [String: Double], [String: Double], [String: Any]?) -> Bool = { a, b, c, params in
+      painter.triangle(a: a, b: b, c: c, params: params)
+      return true
+    }
+    self.renderJSContext.setObject(drawTriangle, forKeyedSubscript: "drawTriangle" as NSString)
 
     let render = self.renderJSContext.objectForKeyedSubscript("invoke")
     render!.call(withArguments: [
       analysis.frameTimestamp,
       analysis.processResult,
       [
-        "analyzeResult": analysis.result
+        "summary": analysis.result
       ]
     ])
     
@@ -173,6 +179,7 @@ class FrameCanvas {
     this.drawRect = drawRect;
     this.drawSkeleton = drawSkeleton;
     this.drawText = drawText;
+    this.drawTriangle = drawTriangle;
   }
 }
 

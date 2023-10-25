@@ -225,6 +225,35 @@ public class AnalysisPainter {
     return self
   }
   
+  @discardableResult public func triangle(
+    a: [String: Double],
+    b: [String: Double],
+    c: [String: Double],
+    params: [String: Any]?
+  ) -> AnalysisPainter {
+    let path = UIBezierPath()
+    let aScreenpoint = self.jsonPointToScreenPoint(a)!
+    path.move(to: CGPoint(x: aScreenpoint.x, y: aScreenpoint.y))
+    let bScreenpoint = self.jsonPointToScreenPoint(b)!
+    path.addLine(to: CGPoint(x: bScreenpoint.x, y: bScreenpoint.y))
+    let cScreenpoint = self.jsonPointToScreenPoint(c)!
+    path.addLine(to: CGPoint(x: cScreenpoint.x, y: cScreenpoint.y))
+    path.close()
+    context.addPath(path.cgPath)
+    
+    let alpha = params?["alpha"] as? Double ?? 1.0
+    if let backgroundColor = params?["backgroundColor"] as? [String: Int] {
+      self.toUIColor(color: backgroundColor, alpha: alpha).setFill()
+      context.fillPath()
+    }
+    else if let borderColor = params?["borderColor"] as? [String: Int] {
+      self.toUIColor(color: borderColor, alpha: alpha).setStroke()
+      context.strokePath()
+    }
+    
+    return self
+  }
+  
   private func toUIColor(color: [String: Int], alpha: Double = 1.0) -> UIColor {
     return UIColor(
       red: CGFloat(Double(color["r"]!) / 255.0),
