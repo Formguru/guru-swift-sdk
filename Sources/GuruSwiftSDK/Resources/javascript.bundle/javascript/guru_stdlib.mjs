@@ -12,8 +12,8 @@ import {
   preprocessedImageToTensor,
   preprocessImageForObjectDetection,
   postProcessObjectDetectionResults,
-  tensorToMatrix,
   prepareTextsForOwlVit,
+  selectDetectionClassFromResults,
   snakeToLowerCamelCase,
 } from "./inference_utils";
 
@@ -312,9 +312,7 @@ export class Frame {
       [inputName]: tensor,
     });
 
-    const outputMatrix = tensorToMatrix(results.dets);
-    // TODO: return more than just the top result?
-    const bbox = outputMatrix[0][0];
+    const bbox = selectDetectionClassFromResults(results, "person")
     const [x1, y1, x2, y2, score] = bbox;
     const topLeft = resized.reverseTransform({x: x1, y: y1})
     const bottomRight = resized.reverseTransform({x: x2, y: y2})
@@ -345,7 +343,7 @@ export class Frame {
 
     const { topLeft: { x: x1, y: y1 } } = boundingBox;
     const { bottomRight: { x: x2, y: y2 } } = boundingBox;
-    const maxNormalizedRange = 1.1
+    const maxNormalizedRange = 2.0
     if ((x2 - x1) > maxNormalizedRange || (y2 - y1) > maxNormalizedRange) {
       throw new Error("boundingBox is not normalized");
     }
