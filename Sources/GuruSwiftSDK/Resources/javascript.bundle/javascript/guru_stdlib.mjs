@@ -12,8 +12,8 @@ import {
   preprocessedImageToTensor,
   preprocessImageForObjectDetection,
   postProcessObjectDetectionResults,
+  tensorToMatrix,
   prepareTextsForOwlVit,
-  selectDetectionClassFromResults,
   snakeToLowerCamelCase,
 } from "./inference_utils";
 
@@ -194,8 +194,7 @@ const _loadModel = _createModelLoader();
  * A single frame from a video, or image, on which Guru can perform inference.
  */
 export class Frame {
-  constructor(state, guruModels, image, timestamp, hasAlpha) {
-    this.state = state;
+  constructor(guruModels, image, timestamp, hasAlpha) {
     this.poseModel = _loadModel("pose");
     this.personDetectionModel = _loadModel("person_detection");
     this.guruModels = guruModels;
@@ -235,8 +234,6 @@ export class Frame {
           nextObject.boundary,
           objectKeypoints,
         );
-
-        this.state.registerFrameObject(frameObject);
 
         return frameObject;
       })
@@ -312,10 +309,13 @@ export class Frame {
       [inputName]: tensor,
     });
 
-    const bbox = selectDetectionClassFromResults(results, "person")
+    const outputMatrix = tensorToMatrix(results.dets);
+    // TODO: return more than just the top result?
+    const bbox = outputMatrix[0][0];
     const [x1, y1, x2, y2, score] = bbox;
-    const topLeft = resized.reverseTransform({x: x1, y: y1})
-    const bottomRight = resized.reverseTransform({x: x2, y: y2})
+    const topLeft = resized.reverseTransform({x: x1, y: y1});
+    const bottomRight = resized.reverseTransform({x: x2, y: y2});
+    console.log(`topLeft: ${JSON.stringify(topLeft)}, bottomRight: ${JSON.stringify(bottomRight)}`);
     return [
       {
         type: "person",
@@ -738,10 +738,9 @@ export class MovementAnalyzer {
  */
 export class VideoAnalysis {
 
-  constructor(frameResults, videoInferenceState) {
+  constructor(frameResults) {
     this.frameResults = frameResults;
     this.length = frameResults.length;
-    this.videoInferenceState = videoInferenceState;
   }
 
   filter(callback) {
@@ -794,14 +793,6 @@ export class VideoAnalysis {
     return mappedArray;
   }
 
-  objectFrames(objectId) {
-    return this.videoInferenceState.frameObjects(objectId);
-  }
-
-  objectIds(objectType) {
-    return this.videoInferenceState.objectIds(objectType);
-  }
-
   resultArray() {
     return this.frameResults.map((frameResult) => frameResult.returnValue);
   }
@@ -834,12 +825,32 @@ export class VideoAnalysis {
 }
 
 
-/**
- * Holds the state of an inference being performed on a Video. This state applies across frames.
- */
-export class VideoInferenceState {
-  constructor(objectRegistry = {}) {
-    this.objectRegistry = objectRegistry;
+export class FrameObjectRegistry {
+  constructor(frameObjects) {
+    this.idToFrameObjects = {};
+
+    (frameObjects || []).forEach((frameObject) => {
+      if (!this.idToFrameObjects.hasOwnProperty(frameObject._id)) {
+        this.idToFrameObjects[frameObject._id] = [];
+      }
+      this.idToFrameObjects[frameObject._id].push(frameObject);
+    });
+
+    Object.values(this.idToFrameObjects).forEach(array => 
+      array.sort((a, b) => a.timestamp - b.timestamp)
+    );
+  }
+
+  registerFrameObject(frameObject) {
+    if (!this.idToFrameObjects.hasOwnProperty(frameObject._id)) {
+      this.idToFrameObjects[frameObject._id] = [];
+    }
+
+    this.idToFrameObjects[frameObject._id].push(frameObject);
+
+    this.idToFrameObjects[frameObject._id].sort((a, b) => {
+      return a.timestamp - b.timestamp;
+    });
   }
 
   /**
@@ -881,35 +892,22 @@ export class VideoInferenceState {
    * @return {[FrameObject]} The FrameObjects for the object. Empty if object is unknown.
    */
   frameObjects(objectId) {
-    if (!this.objectRegistry.hasOwnProperty(objectId)) {
+    if (!this.idToFrameObjects.hasOwnProperty(objectId)) {
       return [];
     }
     else {
-      return this.objectRegistry[objectId]
+      return this.idToFrameObjects[objectId]
         .map((frameObject) => this._deserializeRegistryObject(frameObject));
     }
   }
 
-  objectIds(objectType) {
-    return Object.keys(this.objectRegistry).filter((objectId) => {
-      return this.objectRegistry[objectId][0].objectType === objectType;
-    });
+  frameObjectsForType(objectType) {
+    return this.objectIds(objectType).map((objectId) => this.frameObjects(objectId));
   }
 
-  /**
-   * Register an instance of an object in a particular frame.
-   *
-   * @param {FrameObject} frameObject - The object to register.
-   */
-  registerFrameObject(frameObject) {
-    if (!this.objectRegistry.hasOwnProperty(frameObject._id)) {
-      this.objectRegistry[frameObject._id] = [];
-    }
-
-    this.objectRegistry[frameObject._id].push(frameObject);
-
-    this.objectRegistry[frameObject._id].sort((a, b) => {
-      return a.timestamp - b.timestamp;
+  objectIds(objectType) {
+    return Object.keys(this.idToFrameObjects).filter((objectId) => {
+      return this.idToFrameObjects[objectId][0].objectType === objectType;
     });
   }
 

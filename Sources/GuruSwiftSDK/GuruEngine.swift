@@ -10,7 +10,7 @@ public class GuruEngine {
   let modelStore = ModelStore()
   var lastInferenceTime: Date? = nil
   
-  func withManifest(bundle: Bundle, jsModules: [(String, String)], onnxModels: [String : String], userCode: String, analyzeCode: String, closure: (Manifest) -> Void) {
+  func withManifest(bundle: Bundle, jsModules: [(String, String)], onnxModels: [String : String], userCode: String, closure: (Manifest) -> Void) {
     
     var ptrs: [UnsafeRawPointer] = []
     func allocate(_ s: String) -> UnsafePointer<CChar>? {
@@ -40,7 +40,6 @@ public class GuruEngine {
     }
 
     let userCodeStr = allocate(userCode)
-    let analyzeCodeStr = allocate(analyzeCode)
 
     jsModuleStructs.withUnsafeMutableBufferPointer( { jsModulePtr in
       let js_modules = jsModulePtr.baseAddress
@@ -51,7 +50,6 @@ public class GuruEngine {
           js_modules: js_modules,
           num_js_modules: Int32(jsModules.count),
           user_code: userCodeStr,
-          analyze_code: analyzeCodeStr,
           onnx_models: onnx_models,
           num_onnx_models: Int32(onnxModels.keys.count)
         )
@@ -65,7 +63,7 @@ public class GuruEngine {
     }
   }
   
-  public init(apiKey: String, userCode: String, analyzeCode: String) async {
+  public init(apiKey: String, userCode: String) async {
     let auth = APIKeyAuth(apiKey: apiKey)
     let poseModel = try! await self.modelStore.getModel(auth: auth, type: ModelMetadata.ModelType.pose).get()
     let personDetModel = try! await self.modelStore.getModel(auth: auth, type: ModelMetadata.ModelType.person).get()
@@ -86,8 +84,7 @@ public class GuruEngine {
       bundle: bundle,
       jsModules: jsModules,
       onnxModels: onnxModels,
-      userCode: userCode,
-      analyzeCode: analyzeCode
+      userCode: userCode
     ) { manifest in
       var _manifest = manifest
       withUnsafeMutablePointer(to: &_manifest, { manifestPtr in
@@ -106,25 +103,6 @@ public class GuruEngine {
     let nanos = end.uptimeNanoseconds - start.uptimeNanoseconds
     let ms = nanos / 1_000_000
     return ms
-  }
-  
-  public func analyzeVideo(frameResults: Any) -> Any? {
-    let frameResultsDupe = strdup(self.toJSONString([
-      "frameResults": frameResults,
-    ]))
-    let frameResultsPtr = UnsafePointer(frameResultsDupe)
-    defer {
-      free(UnsafeMutableRawPointer(mutating: frameResultsDupe))
-    }
-
-    let result: UnsafePointer<CChar>? = C.analyze(frameResultsPtr)
-    
-    if result != nil, let jsonResult = parseJSON(result!) {
-      return jsonResult
-    } else {
-      print("analyzeVideo() did not return a valid result!")
-      return nil
-    }
   }
 
   public func processFrame(image: UIImage, timestamp: Int) -> Any? {

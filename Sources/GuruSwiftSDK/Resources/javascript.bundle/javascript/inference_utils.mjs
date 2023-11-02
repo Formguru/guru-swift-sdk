@@ -22,11 +22,6 @@ export const GURU_KEYPOINTS = [
   "right_toe",
 ];
 
-const MODEL_CLASSES = [
-  "person",
-  "barbell_plates",
-];
-
 function arraySum(array) {
   return array.reduce((acc, val) => acc + val);
 }
@@ -449,17 +444,6 @@ export function prepareTextsForOwlVit(textInputs) {
   else {
     return [[textInputs, paddingValue]];
   }
-}
-
-export function selectDetectionClassFromResults(results, detClass) {
-  const classLabel = BigInt(MODEL_CLASSES.indexOf(detClass));
-  const bestClassIdx = results.labels.data.findIndex((label) => label === classLabel);
-  if (bestClassIdx < 0) {
-    return [];
-  }
-
-  const outputMatrix = tensorToMatrix(results.dets);
-  return outputMatrix[0][bestClassIdx];
 }
 
 export function tensorToMatrix(tensor) {
