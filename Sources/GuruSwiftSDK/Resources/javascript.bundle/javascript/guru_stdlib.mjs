@@ -315,7 +315,6 @@ export class Frame {
     const [x1, y1, x2, y2, score] = bbox;
     const topLeft = resized.reverseTransform({x: x1, y: y1});
     const bottomRight = resized.reverseTransform({x: x2, y: y2});
-    console.log(`topLeft: ${JSON.stringify(topLeft)}, bottomRight: ${JSON.stringify(bottomRight)}`);
     return [
       {
         type: "person",
