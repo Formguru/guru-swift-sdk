@@ -105,7 +105,7 @@ public class GuruEngine {
     return ms
   }
 
-  public func processFrame(image: UIImage, timestamp: Int) -> Any? {
+  public func processFrame(image: UIImage, timestamp: Int) -> [String: Any]? {
     var result: UnsafePointer<CChar>? = nil
     self.withRgbFrame(image: image, timestamp: timestamp, { imagePtr in
       var state = EngineState(target_fps: 1.0)

@@ -9,6 +9,7 @@ public class GuruVideo {
   let inferenceLock = NSLock()
   var lastAnalysis: GuruAnalysis?
   let startTime = Date()
+  var renderOperations: [[String: Any]] = []
   
   public init(apiKey: String, schemaId: String) async throws {
     self.apiKey = apiKey
@@ -36,11 +37,13 @@ public class GuruVideo {
     defer { self.inferenceLock.unlock() }
 
     // TODO: how should we handle errors?
-    let frameTimestamp = Int(Date().timeIntervalSince(self.startTime) * 1000)
-    guard let inferenceResult = self.guruEngine.processFrame(image: frame, timestamp: frameTimestamp) else {
+    let frameTimestamp = now()
+    guard let processResult = self.guruEngine.processFrame(image: frame, timestamp: frameTimestamp) else {
       return nil
     }
 
+    self.renderOperations = processResult["renderOps"] as! [[String: Any]]
+    let inferenceResult = processResult["result"]
     self.lastAnalysis = GuruAnalysis(result: inferenceResult, frameTimestamp: frameTimestamp)
 
     // Return a copy so that the value isn't modified underneath the caller
@@ -50,66 +53,80 @@ public class GuruVideo {
   public func renderFrame(frame: UIImage, analysis: GuruAnalysis) -> UIImage {
     let painter = AnalysisPainter(frame: frame)
     
-    let drawBoundingBox: @convention(block) ([String: Any], [String: Int], Double) -> Bool = { object, color, width in
-      painter.boundingBox(
-        box: object["boundary"] as! [String: [String: Double]],
-        borderColor: color,
-        backgroundColor: nil,
-        width: width.isNaN ? 2.0 : width,
-        alpha: 1.0
-      )
-      return true
-    }
-    
-    let drawCircle: @convention(block) ([String: Double], Int, [String: Int], [String: Any]?) -> Bool = { position, radius, color, params in
-      painter.circle(center: position, radius: radius, color: color, params: params)
-      return true
-    }
-    
-    let drawLine: @convention(block) ([String: Double], [String: Double], [String: Int], [String: Any]?) -> Bool = { from, to, color, params in
-      painter.line(from: from, to: to, color: color, params: params)
-      return true
-    }
-    
-    let drawRect: @convention(block) ([String: Double], [String: Double], [String: Any]?) -> Bool = { topLeft, bottomRight, params in
-      painter.boundingBox(
-        box: [
-          "topLeft": topLeft,
-          "bottomRight": bottomRight
-        ],
-        borderColor: params?["borderColor"] as? [String: Int],
-        backgroundColor: params?["backgroundColor"] as? [String: Int],
-        width: params?["width"] as? Double ?? 2.0,
-        alpha: params?["alpha"] as? Double ?? 1.0
-      )
-      return true
-    }
-    
-    let drawSkeleton: @convention(block) ([String: Any], [String: Int], [String: Int], Double, Double) -> Bool = { object, lineColor, keypointColor, lineWidth, keypointRadius in
-      guard let keypoints = object["keypoints"] as? [String: [String: Double]] else {
-        return false
+    for renderOp in self.renderOperations {
+      let name = renderOp["name"] as! String
+      let args = renderOp["args"] as! [Any]
+
+      switch name {
+      case "drawBoundingBox":
+        let frameObjects = args[0] as! [[String: Any]]
+        painter.boundingBox(
+          box: frameObjects.last!["boundary"] as! [String: [String: Double]],
+          borderColor: args[1] as? [String: Int],
+          backgroundColor: nil,
+          width: args.count >= 3 ? args[2] as! Double : 2.0,
+          alpha: 1.0
+        )
+      case "drawCircle":
+        painter.circle(
+          center: args[0] as! [String: Double],
+          radius: args[1] as! Int,
+          color: args[2] as! [String: Int],
+          params: args.count >= 4 ? args[3] as! [String: Any]? : [:]
+        )
+      case "drawLine":
+        painter.line(
+          from: args[0] as! [String: Double],
+          to: args[1] as! [String: Double],
+          color: args[2] as! [String: Int],
+          params: args.count >= 4 ? args[3] as! [String: Any] : [:]
+        )
+      case "drawRect":
+        let params = args.count >= 3 ? args[2] as! [String: Any] : [:]
+        painter.boundingBox(
+          box: [
+            "topLeft": args[0] as! [String: Double],
+            "bottomRight": args[1] as! [String: Double]
+          ],
+          borderColor: params["borderColor"] as? [String: Int],
+          backgroundColor: params["backgroundColor"] as? [String: Int],
+          width: params["width"] as? Double ?? 2.0,
+          alpha: params["alpha"] as? Double ?? 1.0
+        )
+      case "drawSkeleton":
+        let frameObjects = args[0] as! [[String: Any]]
+        let keypoints = frameObjects.last!["keypoints"] as! [String: [String: Double]]
+        painter.skeleton(
+          keypoints: keypoints,
+          lineColor: args[1] as! [String: Int],
+          keypointColor: args[2] as! [String: Int],
+          lineWidth: args.count >= 4 ? args[3] as! Double : 2.0,
+          keypointRadius: args.count >= 5 ? args[4] as! Double : 5.0
+        )
+      case "drawText":
+        painter.text(
+          text: args[0] as! String,
+          position: args[1] as! [String: Double],
+          color: args[2] as! [String: Int],
+          params: args.count >= 4 ? args[3] as! [String: Any] : [:]
+        )
+      case "drawTriangle":
+        painter.triangle(
+          a: args[0] as! [String: Double],
+          b: args[1] as! [String: Double],
+          c: args[2] as! [String: Double],
+          params: args.count >= 4 ? args[3] as! [String: Any] : [:]
+        )
+      default:
+        print("Unknown renderOp: \(name)")
       }
-      painter.skeleton(
-        keypoints: keypoints,
-        lineColor: lineColor,
-        keypointColor: keypointColor,
-        lineWidth: lineWidth.isNaN ? 2 : lineWidth,
-        keypointRadius: keypointRadius.isNaN ? 5 : keypointRadius
-      )
-      return true
-    }
-    
-    let drawText: @convention(block) (String, [String: Double], [String: Int], [String: Any]?) -> Bool = { text, position, color, params in
-      painter.text(text: text, position: position, color: color, params: params)
-      return true
-    }
-    
-    let drawTriangle: @convention(block) ([String: Double], [String: Double], [String: Double], [String: Any]?) -> Bool = { a, b, c, params in
-      painter.triangle(a: a, b: b, c: c, params: params)
-      return true
     }
     
     return painter.finish()
+  }
+  
+  private func now() -> Int {
+    return Int(Date().timeIntervalSince(self.startTime) * 1000);
   }
   
   private func getSchema(schemaId: String) async throws -> [String: Any] {
