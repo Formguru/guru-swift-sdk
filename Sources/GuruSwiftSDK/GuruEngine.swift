@@ -77,8 +77,13 @@ public class GuruEngine {
       fatalError("Could not find bundle")
     }
     let jsModules = [
-      ("guru/inference_utils", "javascript/inference_utils.mjs"),
-      ("guru/stdlib", "javascript/guru_stdlib.mjs")
+      ("guru/preprocess.mjs", "javascript/preprocess.mjs"),
+      ("guru/core_types.mjs", "javascript/core_types.mjs"),
+      ("guru/inference_utils.mjs", "javascript/inference_utils.mjs"),
+      ("guru/onnx_model.mjs", "javascript/onnx_model.mjs"),
+      ("guru/object_detection.mjs", "javascript/object_detection.mjs"),
+      ("guru/pose_estimation.mjs", "javascript/pose_estimation.mjs"),
+      ("guru/stdlib", "javascript/stdlib.mjs")
     ]
     withManifest(
       bundle: bundle,

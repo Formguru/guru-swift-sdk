@@ -5,139 +5,20 @@ import {
   averageKeypointLocation,
   averageKeypointLocations,
   gaussianSmooth,
-  GURU_KEYPOINTS,
   lowerCamelToSnakeCase,
   movingAverage,
   normalizeNumbers,
   preprocessedImageToTensor,
   preprocessImageForObjectDetection,
   postProcessObjectDetectionResults,
-  tensorToMatrix,
   prepareTextsForOwlVit,
-  snakeToLowerCamelCase,
-} from "./inference_utils";
+} from "./inference_utils.mjs";
 
-import { centerCrop, normalize, resize } from "guru/preprocess";
-import { loadModelByName } from "guru/onnxruntime";
+import { YOLOXDetector } from "./object_detection.mjs";
+import { GuruPoseEstimator } from "./pose_estimation.mjs";
 
-export class Color {
-  /**
-   * A colour, represented as an RGB value. Valid values for each are >= 0 and <= 255.
-   *
-   * @param {number} r - The amount of red in the color.
-   * @param {number} g - The amount of green in the color.
-   * @param {number} b - The amount of blue in the color.
-   */
-  constructor(r, g, b) {
-    this.r = r;
-    this.g = g;
-    this.b = b;
-  }
-
-  toHex() {
-    return `#${this.r.toString(16).padStart(2, "0")}${this.g
-      .toString(16)
-      .padStart(2, "0")}${this.b.toString(16).padStart(2, "0")}`;
-  }
-}
-
-export class Position {
-  /**
-   * The two-dimensional coordinates indicating the location of something.
-   *
-   * @param {number} x - The x coordinate of the position.
-   * @param {number} y - The y coordinate of the position.
-   * @param {number} confidence - The confidence Guru has of the accuracy of this position.
-   *        0.0 implies no confidence, 1.0 implies complete confidence.
-   */
-  constructor(x, y, confidence) {
-    this.x = x;
-    this.y = y;
-    this.confidence = confidence !== undefined ? confidence : 1.0;
-  }
-
-  interpolate(other, factor) {
-    /**
-     * Interpolates this position with another, with the difference weight by a given factor.
-     *
-     * @param {Position} other - The other Position to interpolate between.
-     * @param {number} factor - The scaling weight to apply to the difference in location between the two positions.
-     * @returns {Position} The Position interpolated between this one and other.
-     */
-    return new Position(
-      this.x + (other.x - this.x) * factor,
-      this.y + (other.y - this.y) * factor,
-      (this.confidence + other.confidence) / 2
-    );
-  }
-
-  toImageCoords(width, height) {
-    /**
-     * Converts this position to image coordinates.
-     *
-     * @param {number} width - The width of the image.
-     * @param {number} height - The height of the image.
-     * @returns {Tuple} A tuple of length 2. The first element is the x coordinate in the image, the second is the y coordinate.
-     */
-    return [Math.floor(this.x * width), Math.floor(this.y * height)];
-  }
-}
-
-export class Box {
-  /**
-   * A two-dimensional box, often indicating the bounds of something.
-   *
-   * @param {Position} top_left - The top-left corner of the box.
-   * @param {Position} bottom_right - The bottom-right corner of the box.
-   */
-  constructor(top_left, bottom_right) {
-    this.topLeft = top_left;
-    this.bottomRight = bottom_right;
-  }
-}
-
-/**
- * Keypoint is an enumeration of the names of the keypoints which can be found on objects.
- */
-export const Keypoint = Object.freeze(GURU_KEYPOINTS.reduce((keypointEnum, keypointName, index) => {
-  const lowerCamelCase = snakeToLowerCamelCase(keypointName);
-  keypointEnum[lowerCamelCase] = keypointName;
-  return keypointEnum;
-}, {}));
-
-/**
- * An enumeration of the ways an object can be facing, relative to the camera.
- */
-export const ObjectFacing = Object.freeze({
-  /**
-   * Object facing the left-side of the frame.
-   */
-  Left: "left",
-  /**
-   * Object facing the right-side of the frame.
-   */
-  Right: "right",
-  /**
-   * Object facing towards the camera.
-   */
-  Toward: "toward",
-  /**
-   * Object facing away from the camera.
-   */
-  Away: "away",
-  /**
-   * Object facing towards the top of the frame.
-   */
-  Up: "up",
-  /**
-   * Object facing towards the bottom of the frame.
-   */
-  Down: "down",
-  /**
-   * Object direction unknown.
-   */
-  Unknown: "unknown",
-});
+import { Box, Position, Keypoint, ObjectFacing } from "./core_types.mjs";
+export { GURU_KEYPOINTS, Box, Position, Keypoint, ObjectFacing, Color } from "./core_types.mjs";
 
 /**
  * A single object present within a particular frame or image.
@@ -160,6 +41,52 @@ export class FrameObject {
   }
 
   /**
+   * Interpolates the positions between this frame and the next frame, at some timestamp
+   * that lies between them.
+   *
+   * @param {FrameObject} nextFrame - The other FrameObject to interpolate with.
+   * @param {number} at - The timestamp that is betwee this and nextFrame, to interpolate to.
+   * @returns {FrameObject} A new FrameObject, which is interpolated between this and other.
+   */
+  interpolateWithNextFrame(nextFrame, at) {
+    const interpolationFactor =
+      (at - this.timestamp) / (nextFrame.timestamp - this.timestamp);
+
+    const interpolatedBoundary = new Box(
+      this.boundary.topLeft.interpolate(
+        nextFrame.boundary.topLeft,
+        interpolationFactor
+      ),
+      this.boundary.bottomRight.interpolate(
+        nextFrame.boundary.bottomRight,
+        interpolationFactor
+      )
+    );
+
+    const interpolatedKeypoints = {};
+    if (this.keypoints) {
+      for (const [keypoint, location] of Object.entries(this.keypoints)) {
+        if (nextFrame.keypoints.hasOwnProperty(keypoint)) {
+          interpolatedKeypoints[keypoint] = location.interpolate(
+            nextFrame.keypoints[keypoint],
+            interpolationFactor
+          );
+        } else {
+          interpolatedKeypoints[keypoint] = location;
+        }
+      }
+    }
+
+    return new FrameObject(
+      this._id,
+      this.objectType,
+      at,
+      interpolatedBoundary,
+      interpolatedKeypoints
+    );
+  }
+
+  /**
    * Get the location of a keypoint for the object at this frame.
    *
    * @param keypointName The name of the keypoint whose location will be fetched.
@@ -169,35 +96,43 @@ export class FrameObject {
     const snake_case = lowerCamelToSnakeCase(keypointName);
     if (this.keypoints.hasOwnProperty(snake_case)) {
       return this.keypoints[snake_case];
-    }
-    else {
+    } else {
       return undefined;
     }
   }
 }
-
-const _createModelLoader = () => {
-  const _cache = {};
-
-  return (modelName) => {
-
-    if (!_cache[modelName]) {
-      _cache[modelName] = loadModelByName(modelName);
-    }
-
-    return _cache[modelName]
-  }
-};
-const _loadModel = _createModelLoader();
 
 /**
  * A single frame from a video, or image, on which Guru can perform inference.
  */
 export class Frame {
   constructor(guruModels, image, timestamp, hasAlpha) {
-    this.poseModel = _loadModel("pose");
-    this.personDetectionModel = _loadModel("person_detection");
     this.guruModels = guruModels;
+
+    const ensureArray = (x) => Array.isArray(x) ? x : [x];
+    const collectSessions = (modelOrModels) => {
+      const sessionArray = ensureArray(modelOrModels).map((model) => model.session);
+      return sessionArray.length === 1 ? sessionArray[0] : sessionArray;
+    }
+    const getInputSize = (modelOrModels) => {
+      const model = ensureArray(modelOrModels)[0];
+      const { width, height } = model.metadata.size;
+      return { inputHeight: height, inputWidth: width };
+    }
+
+    const poseModel = this.guruModels.poseModel();
+    this.poseEstimator = new GuruPoseEstimator(
+      collectSessions(poseModel),
+      getInputSize(poseModel),
+    );
+
+    const detModel = this.guruModels.personDetectionModel();
+    this.personDetector = new YOLOXDetector(
+      collectSessions(detModel),
+      ["person", "barbell_plates"],
+      getInputSize(detModel),
+    );
+
     this.image = image;
     this.timestamp = timestamp;
     this.hasAlpha = hasAlpha;
@@ -212,7 +147,7 @@ export class Frame {
    * @param {boolean} keypoints - Flag indicating whether to include keypoints in the results. Defaults to true.
    * @return {List} A list of VideoObject instances matching the given criteria.
    */
-  async findObjects(objectTypes, { attributes = {}, keypoints = true } = {}) {
+  async findObjects(objectTypes, {attributes = {}, keypoints = true} = {}) {
     const objectBoundaries = await this._findObjectBoundaries(
       objectTypes,
       attributes
@@ -259,7 +194,7 @@ export class Frame {
       for (const textBatch of textBatches) {
         const textTensors = this.guruModels
           .tokenizer()
-          .tokenize(textBatch, { padding: true, max_length: 16 });
+          .tokenize(textBatch, {padding: true, max_length: 16});
 
         const model = this.guruModels.objectDetectionModel();
         const results = await model.session.run({
@@ -295,85 +230,30 @@ export class Frame {
   }
 
   async _findPeopleBoundaries() {
-    const [inputWidth, inputHeight] = [416, 416];
-    const resizeWithPadZeros = (img) => {
-      const dummyBbox = { x1: 0, y1: 0, x2: img.width - 1, y2: img.height - 1};
-      return centerCrop(img, { inputWidth, inputHeight, boundingBox: dummyBbox, padding: 1.0 })
-    }
-
-    const resized = resizeWithPadZeros(this.image);
-    const nchw = new Float32Array(resized.image.getData());
-    const tensor = new ort.Tensor('float32', nchw, [1, 3, inputHeight, inputWidth]);
-    const inputName = this.personDetectionModel.GetInputNames()[0]
-    const results = await this.personDetectionModel.Run({
-      [inputName]: tensor,
+    const detections = await this.personDetector.run(this.image);
+    const people = detections.filter(({ label, confidence }) => {
+      const minConfidence = .2;
+      return label === "person" && confidence >= minConfidence; 
     });
-
-    const outputMatrix = tensorToMatrix(results.dets);
-    // TODO: return more than just the top result?
-    const bbox = outputMatrix[0][0];
-    const [x1, y1, x2, y2, score] = bbox;
-    const topLeft = resized.reverseTransform({x: x1, y: y1});
-    const bottomRight = resized.reverseTransform({x: x2, y: y2});
-    return [
-      {
+    return people.map(({ box }) => {
+      return {
         type: "person",
-        boundary: new Box(
-          new Position(topLeft.x, topLeft.y, score),
-          new Position(bottomRight.x, bottomRight.y, score)
-        ),
-      },
-    ];
+        boundary: box,
+      }
+    });
   }
 
   async _findObjectKeypoints(boundingBox) {
-    // TODO: read this from the model metadata
-    const inputWidth = 192;
-    const inputHeight = 256;
-
-    const _arrayEq = (a, b) => {
-      return (
-        Array.isArray(a) &&
-        Array.isArray(b) &&
-        a.length === b.length &&
-        a.every((val, index) => val === b[index])
-      );
-    };
-
-    const { topLeft: { x: x1, y: y1 } } = boundingBox;
-    const { bottomRight: { x: x2, y: y2 } } = boundingBox;
-    const maxNormalizedRange = 2.0
-    if ((x2 - x1) > maxNormalizedRange || (y2 - y1) > maxNormalizedRange) {
-      throw new Error("boundingBox is not normalized");
-    }
-    const bbox = {
-      x1: x1 * this.image.width,
-      y1: y1 * this.image.height,
-      x2: x2 * this.image.width,
-      y2: y2 * this.image.height,
-    };
-
-    var cropped = centerCrop(this.image, { inputWidth, inputHeight, boundingBox: bbox });
-    var normalized = normalize(cropped.image);
-    const nchw = new Float32Array(normalized.getData());
-    const tensor = new ort.Tensor("float32", nchw, [1, 3, 256, 192]);
-    const result = this.poseModel.Run({ input: tensor });
-    if (!_arrayEq(result.keypoints.dims, [1, 1, 17, 2])) {
-      throw new Error(
-        `Expected dims [1, 1, 17, 2] but got ${keypointsTensor.dims}`
-      );
+    const {topLeft: {x: x1, y: y1}} = boundingBox;
+    const {bottomRight: {x: x2, y: y2}} = boundingBox;
+    const width = (x2 - x1) * this.image.width;
+    const height = (y2 - y1) * this.image.height;
+    const minSideLength = 20; // if either side is < 20 pixels then don't bother
+    if (width < minSideLength || height < minSideLength) {
+      return null;
     }
 
-    const keypoints = result.keypoints.data;
-    const scores = result.scores.data;
-    const j2p = {};
-    for (let i = 0; i < scores.length; i++) {
-      const _x = keypoints[i * 2]
-      const _y = keypoints[i * 2 + 1]
-      const { x, y } = cropped.reverseTransform({x: _x, y: _y});
-      j2p[GURU_KEYPOINTS[i]] = {x, y, confidence: scores[i]};
-    }
-    return j2p
+    return await this.poseEstimator.run(this.image, boundingBox);
   }
 }
 
@@ -391,11 +271,11 @@ export class GeneralAnalyzer {
    * @returns {[object]} - An array of objects, each one having a start, middle, and end property, that holds the index
    *    into numbers of the boundaries of the peak or valley.
    */
-  static signals(numbers, findPeaks, prominence, sigma) {  
+  static signals(numbers, findPeaks, prominence, sigma) {
     function findSignalBoundaries(signal, velocities, prevSignal, nextSignal) {
       const leftEdge = prevSignal + 1;
       let repStart = leftEdge;
-      let seenPositive = false;  
+      let seenPositive = false;
       for (let i = signal - 1; i >= leftEdge; i--) {
         seenPositive = seenPositive || velocities[i] > 0;
         if (seenPositive && velocities[i] <= 0) {
@@ -403,10 +283,10 @@ export class GeneralAnalyzer {
           break;
         }
       }
-    
+
       const rightEdge = nextSignal - 1;
       let repEnd = rightEdge;
-      let seenNegative = false;  
+      let seenNegative = false;
       for (let i = signal + 1; i < rightEdge; i++) {
         seenNegative = seenNegative || velocities[i] < 0;
         if (seenNegative && velocities[i] >= 0) {
@@ -414,76 +294,76 @@ export class GeneralAnalyzer {
           break;
         }
       }
-    
+
       return [repStart, signal, repEnd];
-    }  
-  
+    }
+
     function peakProminences(x, peaks) {
       let prominences = new Float64Array(peaks.length);
       let leftMin, rightMin;
-    
+
       for (let peakNr = 0; peakNr < peaks.length; peakNr++) {
         let peak = peaks[peakNr];
         let iMin = 0;
         let iMax = x.length - 1;
-    
+
         if (!(iMin <= peak && peak <= iMax)) {
           throw new Error(`Peak ${peak} is not a valid index for 'x'.`);
         }
-    
+
         let i = peak;
         leftMin = x[peak];
-    
+
         while (iMin <= i && x[i] <= x[peak]) {
           if (x[i] < leftMin) {
             leftMin = x[i];
           }
           i--;
         }
-    
+
         i = peak;
         rightMin = x[peak];
-    
+
         while (i <= iMax && x[i] <= x[peak]) {
           if (x[i] < rightMin) {
             rightMin = x[i];
           }
           i++;
         }
-    
+
         prominences[peakNr] = x[peak] - Math.max(leftMin, rightMin);
-    
+
         if (prominences[peakNr] === 0) {
           console.warn(`Peak ${peakNr} has a prominence of 0`);
         }
       }
-    
+
       return Array.from(prominences)
     }
-    
+
     if (!findPeaks) {
       numbers = numbers.map((nextX) => 1.0 - nextX);
     }
-  
+
     const smoothed = gaussianSmooth(numbers, sigma);
-  
+
     const normalized = normalizeNumbers(smoothed);
-  
+
     const possiblePeaks = arrayPeaks(normalized);
-  
+
     const prominences = peakProminences(normalized, possiblePeaks);
 
     const peaks = possiblePeaks.filter((_, peakIndex) => {
       return prominences[peakIndex] >= prominence;
     });
-  
+
     const velocities = arrayVelocities(normalized);
-  
+
     return peaks.map((peak, index) => {
       const prevPeak = index === 0 ? -1 : peaks[index - 1];
       const nextPeak = index === peaks.length - 1 ? velocities.length - 1 : peaks[index + 1];
       const boundaries = findSignalBoundaries(peak, velocities, prevPeak, nextPeak);
-  
+
       return {
         start: boundaries[0],
         middle: boundaries[1],
@@ -505,20 +385,20 @@ export class GeneralAnalyzer {
       });
       return runningDiff.map((frame) => frame.reduce((acc, val) => acc + val, 0));
     }
-    
+
     function calculateCutoff(runningDiff, threshold) {
       const sortedArr = runningDiff.slice().sort((a, b) => a - b);
       const index = (sortedArr.length - 1) * threshold;
       const lower = Math.floor(index);
       const fraction = index - lower;
-    
+
       if (lower + 1 < sortedArr.length) {
         return sortedArr[lower] + fraction * (sortedArr[lower + 1] - sortedArr[lower]);
       } else {
         return sortedArr[lower];
       }
     }
-    
+
     const numFrames = frameObjects.length;
     const midXY = averageKeypointLocations(
       frameObjects,
@@ -528,19 +408,19 @@ export class GeneralAnalyzer {
     const runningDiff = calculateRunningDifference(frameObjects, midXY);
     const cutoff = calculateCutoff(runningDiff, threshold);
     const slidingDiff = movingAverage(runningDiff, 4);
-  
+
     const pred = arrayValuesLessThan(slidingDiff, cutoff);
     if (pred.length < 2) {
       return [0, numFrames - 1];
     }
-  
+
     let start = pred[0];
     let end = pred[pred.length - 1];
     if (start > Math.floor(numFrames / 3) || end < Math.floor((2 * numFrames) / 3)) {
       start = 0;
       end = numFrames - 1;
     }
-  
+
     return [
       frameObjects[start].timestamp,
       frameObjects[frameObjects.length - 1].timestamp - frameObjects[end].timestamp,
@@ -572,7 +452,7 @@ export class MovementAnalyzer {
       (keypoint2Location.y - keypoint1Location.y) /
       (keypoint2Location.x - keypoint1Location.x);
     return (Math.atan(distance) * 180) / Math.PI;
-  }  
+  }
 
   /**
    * Determines which direction the person is mostly facing throughout the video.
@@ -588,18 +468,14 @@ export class MovementAnalyzer {
 
       if (nose.x < leftHip.x && nose.x < rightHip.x) {
         return ObjectFacing.Left;
-      }
-      else if (nose.x > leftHip.x && nose.x > rightHip.x) {
+      } else if (nose.x > leftHip.x && nose.x > rightHip.x) {
         return ObjectFacing.Right;
-      }
-      else if (nose.x > rightHip.x && nose.x < leftHip.x) {
+      } else if (nose.x > rightHip.x && nose.x < leftHip.x) {
         return ObjectFacing.Toward;
-      }
-      else {
+      } else {
         return ObjectFacing.Unknown;
       }
-    }
-    else {
+    } else {
       const leftShoulder = averageKeypointLocation(personFrames, Keypoint.leftShoulder);
       const rightShoulder = averageKeypointLocation(personFrames, Keypoint.rightShoulder);
       const leftWrist = averageKeypointLocation(personFrames, Keypoint.leftWrist);
@@ -607,11 +483,9 @@ export class MovementAnalyzer {
 
       if (leftShoulder.y < leftWrist.y && rightShoulder.y < rightWrist.y) {
         return ObjectFacing.Down;
-      }
-      else if (leftShoulder.y > leftWrist.y && rightShoulder.y > rightWrist.y) {
+      } else if (leftShoulder.y > leftWrist.y && rightShoulder.y > rightWrist.y) {
         return ObjectFacing.Up;
-      }
-      else {
+      } else {
         return ObjectFacing.Unknown;
       }
     }
@@ -644,7 +518,7 @@ export class MovementAnalyzer {
       (rightHip.x < rightKnee.x)
     );
     return !personHorizontal;
-  }  
+  }
 
   /**
    * Find the repetitions of a movement a person is performing, by measuring
@@ -673,9 +547,9 @@ export class MovementAnalyzer {
    *    the millisecond timestamp of the boundaries for that rep.
    */
   static repsByKeypointDistance(
-    personFrames, 
-    keypoint1, 
-    keypoint2, { 
+    personFrames,
+    keypoint1,
+    keypoint2, {
       keypointsContract = true,
       threshold = 0.2,
       smoothing = 2.0,
@@ -694,7 +568,7 @@ export class MovementAnalyzer {
 
     const start = ignoreStartMs;
     const end = Math.max(
-      Math.max(...personFrames.map((frame) => frame.timestamp)) - ignoreEndMs, 
+      Math.max(...personFrames.map((frame) => frame.timestamp)) - ignoreEndMs,
       start + 1
     );
     let firstFrameIndex = 0;
@@ -702,8 +576,7 @@ export class MovementAnalyzer {
       if (frameObject.timestamp < start) {
         ++firstFrameIndex;
         return null;
-      }
-      else if (frameObject.timestamp > end) {
+      } else if (frameObject.timestamp > end) {
         return null;
       }
 
@@ -712,8 +585,7 @@ export class MovementAnalyzer {
 
       if (keypoint1Location && keypoint2Location) {
         return Math.abs(keypoint1Location.y - keypoint2Location.y);
-      }
-      else {
+      } else {
         return null;
       }
     }).filter((distance) => distance !== null);
@@ -730,100 +602,6 @@ export class MovementAnalyzer {
   }
 }
 
-
-/**
- * A class that knows the output of inference across the video and is capable of
- * computing analysis based on it.
- */
-export class VideoAnalysis {
-
-  constructor(frameResults) {
-    this.frameResults = frameResults;
-    this.length = frameResults.length;
-  }
-
-  filter(callback) {
-    const filteredArray = [];
-    for (let i = 0; i < this.length; i++) {
-      if (callback(this.frameResults[i], i, this)) {
-        filteredArray.push(this.frameResults[i]);
-      }
-    }
-    return new VideoAnalysis(filteredArray);
-  }
-
-  find(callback) {
-    for (let i = 0; i < this.length; i++) {
-      if (callback(this.frameResults[i], i, this)) {
-        return this.frameResults[i];
-      }
-    }
-    return undefined;
-  }
-
-  forEach(callback) {
-    for (let i = 0; i < this.length; i++) {
-      callback(this.frameResults[i], i, this);
-    }
-  }
-
-  get(index) {
-    if (index < 0 || index >= this.length) {
-      return undefined; // Out of bounds
-    }
-    return this.frameResults[index];
-  }
-
-  indexOf(searchElement, fromIndex = 0) {
-    for (let i = fromIndex; i < this.length; i++) {
-      if (this.frameResults[i] === searchElement) {
-        return i;
-      }
-    }
-    return -1;
-  }
-
-  map(callback) {
-    const mappedArray = [];
-    for (let i = 0; i < this.length; i++) {
-      const mappedValue = callback(this.frameResults[i], i, this);
-      mappedArray.push(mappedValue);
-    }
-    return mappedArray;
-  }
-
-  resultArray() {
-    return this.frameResults.map((frameResult) => frameResult.returnValue);
-  }
-
-  reduce(callback, initialValue) {
-    let accumulator = initialValue === undefined ? this.frameResults[0] : initialValue;
-    for (let i = initialValue === undefined ? 1 : 0; i < this.length; i++) {
-      accumulator = callback(accumulator, this.frameResults[i], i, this);
-    }
-    return accumulator;
-  }
-
-  slice(start = 0, end = this.length) {
-    const slicedArray = [];
-    start = Math.max(start >= 0 ? start : this.length + start, 0);
-    end = Math.min(end >= 0 ? end : this.length + end, this.length);
-    for (let i = start; i < end; i++) {
-      slicedArray.push(this.frameResults[i]);
-    }
-    return new VideoAnalysis(slicedArray);
-  }
-
-  toJSON() {
-    return this.frameResults;
-  }
-
-  toString() {
-    return JSON.stringify(this.toJSON());
-  }
-}
-
-
 export class FrameObjectRegistry {
   constructor(frameObjects) {
     this.idToFrameObjects = {};
@@ -835,7 +613,7 @@ export class FrameObjectRegistry {
       this.idToFrameObjects[frameObject._id].push(frameObject);
     });
 
-    Object.values(this.idToFrameObjects).forEach(array => 
+    Object.values(this.idToFrameObjects).forEach(array =>
       array.sort((a, b) => a.timestamp - b.timestamp)
     );
   }
@@ -893,8 +671,7 @@ export class FrameObjectRegistry {
   frameObjects(objectId) {
     if (!this.idToFrameObjects.hasOwnProperty(objectId)) {
       return [];
-    }
-    else {
+    } else {
       return this.idToFrameObjects[objectId]
         .map((frameObject) => this._deserializeRegistryObject(frameObject));
     }

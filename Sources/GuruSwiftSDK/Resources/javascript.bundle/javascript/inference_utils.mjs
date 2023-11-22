@@ -1,30 +1,11 @@
-export const GURU_KEYPOINTS = [
-  "nose",
-  "left_eye",
-  "right_eye",
-  "left_ear",
-  "right_ear",
-  "left_shoulder",
-  "right_shoulder",
-  "left_elbow",
-  "right_elbow",
-  "left_wrist",
-  "right_wrist",
-  "left_hip",
-  "right_hip",
-  "left_knee",
-  "right_knee",
-  "left_ankle",
-  "right_ankle",
-  "left_heel",
-  "right_heel",
-  "left_toe",
-  "right_toe",
-];
+import {centerCrop, normalize} from "./preprocess.mjs";
+import { GURU_KEYPOINTS } from "./core_types.mjs";
+export { GURU_KEYPOINTS } from "./core_types.mjs" // for backwards-compatibility
 
-function arraySum(array) {
-  return array.reduce((acc, val) => acc + val);
-}
+const MODEL_CLASSES = [
+  "person",
+  "barbell_plates",
+];
 
 function arrayMean(array) {
   return arraySum(array) / array.length;
@@ -38,6 +19,10 @@ export function arrayPeaks(numbers) {
     }
   }
   return maxima;
+}
+
+function arraySum(array) {
+  return array.reduce((acc, val) => acc + val);
 }
 
 function arrayStdDev(arr) {
@@ -56,7 +41,7 @@ export function arrayValuesLessThan(arr, cutoff) {
     }
   }
   return pred;
-}  
+}
 
 export function arrayVelocities(numbers) {
   const velocity = [0];
@@ -85,11 +70,7 @@ export function averageKeypointLocation(personFrames, keypoint) {
     }
   });
 
-  return {
-    x: sumX / n,
-    y: sumY / n,
-    confidence: sumConfidence / n
-  };
+  return {x: sumX / n, y: sumY / n, confidence: sumConfidence / n};
 }
 
 export function averageKeypointLocations(frameObjects, frameStart = 0, frameEnd = 100000000) {
@@ -123,33 +104,6 @@ function centerToCornersFormat([centerX, centerY, width, height]) {
     centerX + width / 2,
     centerY + height / 2
   ];
-}
-
-function cropImage(imageData, boundingBox) {
-  const { data, width } = imageData;
-  const x = Math.round(boundingBox.topLeft.x * imageData.width);
-  const y = Math.round(boundingBox.topLeft.y * imageData.height);
-  const bboxWidth = Math.round(boundingBox.bottomRight.x * imageData.width - x);
-  const bboxHeight = Math.round(boundingBox.bottomRight.y* imageData.height - y);
-  const bytesPerPixel = 4;
-
-  // Create a new Uint8ClampedArray for the cropped image data
-  const croppedData = new Uint8ClampedArray(bboxWidth * bboxHeight * bytesPerPixel);
-
-  // Iterate over the rows and columns of the bounding box
-  for (let row = 0; row < bboxHeight; row++) {
-    const srcStartIndex = ((y + row) * width + x) * bytesPerPixel;
-    const destStartIndex = Math.min(row * bboxWidth * bytesPerPixel, croppedData.length - 1);
-
-    // Copy the pixels from the source image data to the cropped image data
-    croppedData.set(data.subarray(srcStartIndex, srcStartIndex + bboxWidth * bytesPerPixel), Math.min(destStartIndex, croppedData.length - 1));
-  }
-
-  return {
-    data: croppedData,
-    width: bboxWidth,
-    height: bboxHeight,
-  };
 }
 
 export function descaleCoords(x, y, originalWidth, originalHeight, scaledWidth, scaledHeight) {
@@ -269,7 +223,7 @@ export function normalizeNumbers(timeSeries) {
   const maxValue = Math.max(...timeSeries);
 
   return timeSeries.map((value) => (value - minValue) / (maxValue - minValue));
-}  
+}
 
 function normalizeImageData(imageData, mean = [0, 0, 0], std = [1, 1, 1]) {
   const data = imageData.data;
@@ -339,134 +293,15 @@ function scaleImage(image, sourceWidth, sourceHeight, targetWidth, targetHeight,
   };
 }
 
-function transposeImageData(imageArray, width, height) {
-  const channels = 3;
-  const transposed = new Float32Array(channels * height * width);
-
-  let transposedIndex = 0;
-  for (let i = 0; i < imageArray.length; i += 3) {
-    transposed[transposedIndex++] = imageArray[i];
-  }
-  for (let i = 1; i < imageArray.length; i += 3) {
-    transposed[transposedIndex++] = imageArray[i];
-  }
-  for (let i = 2; i < imageArray.length; i += 3) {
-    transposed[transposedIndex++] = imageArray[i];
+export function selectDetectionClassFromResults(results, detClass) {
+  const classLabel = BigInt(MODEL_CLASSES.indexOf(detClass));
+  const bestClassIdx = results.labels.data.findIndex((label) => label === classLabel);
+  if (bestClassIdx < 0) {
+    return [];
   }
 
-  return transposed;
-}
-
-function sigmoid(x) {
-  return 1 / (1 + Math.exp(-x));
-}
-
-export function postProcessObjectDetectionResults(results, labels, threshold = 0.01) {
-  const numBoxes = results.logits.dims[1];
-  const bboxMatrix = tensorToMatrix(results.pred_boxes);
-  const bboxes = [];
-  for (let i = 0; i < numBoxes; ++i) {
-    bboxes.push(centerToCornersFormat([
-      bboxMatrix[0][i][0],
-      bboxMatrix[0][i][1],
-      bboxMatrix[0][i][2],
-      bboxMatrix[0][i][3],
-    ]));
-  }
-
-  return mostLikelyClass(tensorToMatrix(results.logits), bboxes, labels, threshold);
-}
-
-export const preprocessImageForObjectDetection = (imageData, modelWidth, modelHeight) => {
-  const resized = scaleImage(
-    imageData.data,
-    imageData.width, imageData.height,
-    modelWidth, modelHeight,
-    0.00392156862745098,
-  );
-
-  const normalized = normalizeImageData(
-    resized,
-    [0.48145466, 0.4578275, 0.40821073],
-    [0.26862954, 0.26130258, 0.27577711],
-  );
-
-  const transposedImage = transposeImageData(normalized, modelWidth, modelHeight);
-
-  return {
-    image: transposedImage,
-    newWidth: modelWidth,
-    newHeight: modelHeight,
-  };
-};
-
-export const preprocessImageForPersonDetection = (imageData, modelWidth, modelHeight) => {
-  const resized = scaleImageData(imageData, modelWidth, modelHeight);
-  const rgbImage = toRGBFloatArray(resized);
-  const transposedImage = transposeImageData(rgbImage, modelWidth, modelHeight);
-
-  return {
-    image: transposedImage,
-    newWidth: modelWidth,
-    newHeight: modelHeight,
-  };
-};
-
-export function preprocessedImageToTensor(ort, preprocessedFrame) {
-  return new ort.Tensor(
-    'float32',
-    preprocessedFrame.image,
-    [1, 3, preprocessedFrame.newHeight, preprocessedFrame.newWidth]
-  );
-}
-
-
-/**
- * The text batch size for OWL-ViT is 2, so groups the inputs into pairs
- * so that they can be run most efficiently.
- *
- * @param textInputs Array of strings of the items to look for.
- * @returns The Array of Pairs.
- */
-export function prepareTextsForOwlVit(textInputs) {
-  const paddingValue = "nothing";
-  if (Array.isArray(textInputs)) {
-    if (textInputs.length % 2 > 0) {
-      textInputs.push(paddingValue);
-    }
-
-    const pairs = [];
-    for (let i = 0; i < textInputs.length; i += 2) {
-      pairs.push([textInputs[i], textInputs[i + 1]]);
-    }
-    return pairs;
-  }
-  else {
-    return [[textInputs, paddingValue]];
-  }
-}
-
-export function tensorToMatrix(tensor) {
-  const dataArray = Array.from(tensor.data);
-
-  function reshapeArray(array, shape) {
-    if (shape.length === 0) {
-      return array.shift();
-    }
-    const size = shape.shift();
-    const subArray = [];
-    for (let i = 0; i < size; i++) {
-      subArray.push(reshapeArray(array, shape.slice()));
-    }
-    return subArray;
-  }
-
-  const dimensions = [...tensor.dims];
-  const matrix = reshapeArray(dataArray, tensor.dims);
-  matrix.size = function() {
-    return dimensions;
-  };
-  return matrix;
+  const outputMatrix = tensorToMatrix(results.dets);
+  return outputMatrix[0][bestClassIdx];
 }
 
 export function lowerCamelToSnakeCase(lowerCamel) {
@@ -531,4 +366,224 @@ export function smoothedZScore(values, params) {
   }
 
   return signals
+}
+
+function transposeImageData(imageArray, width, height) {
+  const channels = 3;
+  const transposed = new Float32Array(channels * height * width);
+
+  let transposedIndex = 0;
+  for (let i = 0; i < imageArray.length; i += 3) {
+    transposed[transposedIndex++] = imageArray[i];
+  }
+  for (let i = 1; i < imageArray.length; i += 3) {
+    transposed[transposedIndex++] = imageArray[i];
+  }
+  for (let i = 2; i < imageArray.length; i += 3) {
+    transposed[transposedIndex++] = imageArray[i];
+  }
+
+  return transposed;
+}
+
+function sigmoid(x) {
+  return 1 / (1 + Math.exp(-x));
+}
+
+export function keypointsFromHeatmap(heatmap, preprocessedFrame, boundingBox) {
+  const K = heatmap.length;
+  const heatmapHeight = heatmap[0].length;
+  const heatmapWidth = heatmap[0][0].length;
+  if (![17, 21].includes(K)) {
+    throw new Error("Invalid number of keypoints. Expected 17 or 21.");
+  }
+
+  function argmax(matrix) {
+    if (matrix.length === 0) {
+      throw new Error("Cannot perform argmax on an empty matrix.");
+    }
+
+    let maxIndex = -1;
+    let maxValue = -100000000;
+
+    for (let row = 0; row < heatmapHeight; row++) {
+      for (let col = 0; col < heatmapWidth; col++) {
+        if (matrix[row][col] > maxValue) {
+          maxIndex = (row * heatmapWidth) + col;
+          maxValue = matrix[row][col];
+        }
+      }
+    }
+
+    return maxIndex;
+  }
+
+  const results = [];
+  for (let k = 0; k < K; k++) {
+    const max_idx = argmax(heatmap[k]);
+    let y = Math.floor(max_idx / heatmapWidth);
+    let x = max_idx % heatmapWidth;
+    const score = heatmap[k][y][x];
+
+    // descale the coordinates from the dimensions wanted by the model to the dimensions of the bounding box.
+    const descaled = descaleCoords(
+      (x / heatmapWidth) * preprocessedFrame.newWidth,
+      (y / heatmapHeight) * preprocessedFrame.newHeight,
+      preprocessedFrame.boundingBoxWidth, preprocessedFrame.boundingBoxHeight,
+      preprocessedFrame.newWidth, preprocessedFrame.newHeight,
+    );
+
+    // then translate from bounding box coords back to the original image
+    results.push([
+      boundingBox.topLeft.x + descaled[0] * (preprocessedFrame.boundingBoxWidth / preprocessedFrame.originalWidth),
+      boundingBox.topLeft.y + descaled[1] * (preprocessedFrame.boundingBoxHeight / preprocessedFrame.originalHeight),
+      score
+    ]);
+  }
+
+  return results;
+}
+
+export function postProcessObjectDetectionResults(results, labels, threshold = 0.01) {
+  const numBoxes = results.logits.dims[1];
+  const bboxMatrix = tensorToMatrix(results.pred_boxes);
+  const bboxes = [];
+  for (let i = 0; i < numBoxes; ++i) {
+    bboxes.push(centerToCornersFormat([
+      bboxMatrix[0][i][0],
+      bboxMatrix[0][i][1],
+      bboxMatrix[0][i][2],
+      bboxMatrix[0][i][3],
+    ]));
+  }
+
+  return mostLikelyClass(tensorToMatrix(results.logits), bboxes, labels, threshold);
+}
+
+export function postProcessPoseEstimationResult(result, keypointTransformer) {
+  const keypoints = result.keypoints.data;
+  const scores = result.scores.data;
+  const transformedKeypoints = [];
+  for (let i = 0; i < scores.length; i++) {
+    const kpt = { x: keypoints[i * 2], y: keypoints[i * 2 + 1], score: scores[i] };
+    const { x, y } = keypointTransformer(kpt);
+    kpt.x = x;
+    kpt.y = y;
+    transformedKeypoints.push(kpt);
+  }
+
+  const jointToLocation = {};
+  GURU_KEYPOINTS.forEach((keypointName, index) => {
+    if (index >= 17) {
+      return;
+    }
+    const { x, y, score } = transformedKeypoints[index];
+    jointToLocation[keypointName] = { x, y, confidence: score };
+  });
+  return jointToLocation;
+}
+
+export const preprocessImageForObjectDetection = (imageData, modelWidth, modelHeight) => {
+  const resized = scaleImage(
+    imageData.data,
+    imageData.width, imageData.height,
+    modelWidth, modelHeight,
+    0.00392156862745098,
+  );
+
+  const normalized = normalizeImageData(
+    resized,
+    [0.48145466, 0.4578275, 0.40821073],
+    [0.26862954, 0.26130258, 0.27577711],
+  );
+
+  const transposedImage = transposeImageData(normalized, modelWidth, modelHeight);
+
+  return {
+    image: transposedImage,
+    newWidth: modelWidth,
+    newHeight: modelHeight,
+  };
+};
+
+export const preprocessImageForPersonDetection = (imageData, modelWidth, modelHeight) => {
+  const resized = scaleImageData(imageData, modelWidth, modelHeight);
+  const rgbImage = toRGBFloatArray(resized);
+  const transposedImage = transposeImageData(rgbImage, modelWidth, modelHeight);
+
+  return {
+    image: transposedImage,
+    newWidth: modelWidth,
+    newHeight: modelHeight,
+  };
+};
+
+export const preprocessImageForPoseEstimation = (imageData, modelWidth, modelHeight, boundingBox) => {
+  const processedBBox = {
+    x1: boundingBox.topLeft.x * imageData.width,
+    y1: boundingBox.topLeft.y * imageData.height,
+    x2: boundingBox.bottomRight.x * imageData.width,
+    y2: boundingBox.bottomRight.y * imageData.height,
+  };
+
+  const cropped = centerCrop(imageData, { inputWidth: modelWidth, inputHeight: modelHeight, boundingBox: processedBBox });
+  const normalized = normalize(cropped.image);
+  return [new Float32Array(normalized.getData()), cropped];
+};
+
+export function preprocessedImageToTensor(ort, preprocessedFrame) {
+  return new ort.Tensor(
+    'float32',
+    preprocessedFrame.image,
+    [1, 3, preprocessedFrame.newHeight, preprocessedFrame.newWidth]
+  );
+}
+
+
+/**
+ * The text batch size for OWL-ViT is 2, so groups the inputs into pairs
+ * so that they can be run most efficiently.
+ *
+ * @param textInputs Array of strings of the items to look for.
+ * @returns The Array of Pairs.
+ */
+export function prepareTextsForOwlVit(textInputs) {
+  const paddingValue = "nothing";
+  if (Array.isArray(textInputs)) {
+    if (textInputs.length % 2 > 0) {
+      textInputs.push(paddingValue);
+    }
+
+    const pairs = [];
+    for (let i = 0; i < textInputs.length; i += 2) {
+      pairs.push([textInputs[i], textInputs[i + 1]]);
+    }
+    return pairs;
+  }
+  else {
+    return [[textInputs, paddingValue]];
+  }
+}
+
+export function tensorToMatrix(tensor) {
+  const dataArray = Array.from(tensor.data);
+
+  function reshapeArray(array, shape) {
+    if (shape.length === 0) {
+      return array.shift();
+    }
+    const size = shape.shift();
+    const subArray = [];
+    for (let i = 0; i < size; i++) {
+      subArray.push(reshapeArray(array, shape.slice()));
+    }
+    return subArray;
+  }
+
+  const dimensions = [...tensor.dims];
+  const matrix = reshapeArray(dataArray, tensor.dims);
+  matrix.size = function() {
+    return dimensions;
+  };
+  return matrix;
 }

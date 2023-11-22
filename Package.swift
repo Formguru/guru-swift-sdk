@@ -34,8 +34,8 @@ let package = Package(
         .binaryTarget(
           name: "GuruEngine",
           // path: "../guruengine/GuruEngine.xcframework"
-          url: "https://guru-dist.s3.us-west-2.amazonaws.com/xcframework/guru-engine/20231105/guru-engine.xcframework.zip",
-          checksum: "839d91b5ef0c415631c31daec66016b7a3828a5d02c7284e7102a6e4436b8731"
+          url: "https://guru-dist.s3.us-west-2.amazonaws.com/xcframework/guru-engine/20231121/guru-engine.xcframework.zip",
+          checksum: "83b5947d5b7f62e98a00f4a63263d3755a10744d056121bd1457cdbb4f842728"
         ),
         .binaryTarget(
           name: "quickjs",
