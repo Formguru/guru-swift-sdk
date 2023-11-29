@@ -59,9 +59,12 @@ public class GuruVideo {
 
       switch name {
       case "drawBoundingBox":
-        let frameObjects = args[0] as! [[String: Any]]
+        var frameObjects = args[0] as? [[String: Any]]
+        if (frameObjects == nil) {
+          frameObjects = [args[0] as! [String: Any]]
+        }
         painter.boundingBox(
-          box: frameObjects.last!["boundary"] as! [String: [String: Double]],
+          box: frameObjects!.last!["boundary"] as! [String: [String: Double]],
           borderColor: args[1] as? [String: Int],
           backgroundColor: nil,
           width: args.count >= 3 ? args[2] as! Double : 2.0,

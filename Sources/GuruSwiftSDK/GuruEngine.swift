@@ -67,9 +67,11 @@ public class GuruEngine {
     let auth = APIKeyAuth(apiKey: apiKey)
     let poseModel = try! await self.modelStore.getModel(auth: auth, type: ModelMetadata.ModelType.pose).get()
     let personDetModel = try! await self.modelStore.getModel(auth: auth, type: ModelMetadata.ModelType.person).get()
+    let objectDetModel = try! await self.modelStore.getModel(auth: auth, type: ModelMetadata.ModelType.object).get()
     let onnxModels = [
       "pose": poseModel.path,
-      "person_detection": personDetModel.path
+      "person_detection": personDetModel.path,
+      "object_detection": objectDetModel.path
     ]
     guard let bundleURL = Bundle.module.url(forResource: "javascript", withExtension: "bundle"),
           let bundle = Bundle(url: bundleURL)
@@ -77,6 +79,7 @@ public class GuruEngine {
       fatalError("Could not find bundle")
     }
     let jsModules = [
+      ("guru/coco.mjs", "javascript/coco.mjs"),
       ("guru/preprocess.mjs", "javascript/preprocess.mjs"),
       ("guru/core_types.mjs", "javascript/core_types.mjs"),
       ("guru/inference_utils.mjs", "javascript/inference_utils.mjs"),

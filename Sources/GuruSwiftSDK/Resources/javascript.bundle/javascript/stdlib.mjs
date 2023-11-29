@@ -4,20 +4,17 @@ import {
   arrayVelocities,
   averageKeypointLocation,
   averageKeypointLocations,
+  ensureArray,
   gaussianSmooth,
   lowerCamelToSnakeCase,
   movingAverage,
   normalizeNumbers,
-  preprocessedImageToTensor,
-  preprocessImageForObjectDetection,
-  postProcessObjectDetectionResults,
-  prepareTextsForOwlVit,
 } from "./inference_utils.mjs";
 
 import { YOLOXDetector } from "./object_detection.mjs";
 import { GuruPoseEstimator } from "./pose_estimation.mjs";
-
 import { Box, Position, Keypoint, ObjectFacing } from "./core_types.mjs";
+import { cocoClasses } from "./coco.mjs";
 export { GURU_KEYPOINTS, Box, Position, Keypoint, ObjectFacing, Color } from "./core_types.mjs";
 
 /**
@@ -126,11 +123,18 @@ export class Frame {
       getInputSize(poseModel),
     );
 
-    const detModel = this.guruModels.personDetectionModel();
+    const personDetModel = this.guruModels.personDetectionModel();
     this.personDetector = new YOLOXDetector(
-      collectSessions(detModel),
+      collectSessions(personDetModel),
       ["person", "barbell_plates"],
-      getInputSize(detModel),
+      getInputSize(personDetModel),
+    );
+
+    const objectDetModel = this.guruModels.objectDetectionModel();
+    this.objectDetector = new YOLOXDetector(
+      collectSessions(objectDetModel),
+      cocoClasses,
+      getInputSize(objectDetModel),
     );
 
     this.image = image;
@@ -148,6 +152,7 @@ export class Frame {
    * @return {List} A list of VideoObject instances matching the given criteria.
    */
   async findObjects(objectTypes, {attributes = {}, keypoints = true} = {}) {
+    objectTypes = ensureArray(objectTypes);
     const objectBoundaries = await this._findObjectBoundaries(
       objectTypes,
       attributes
@@ -176,56 +181,19 @@ export class Frame {
   }
 
   async _findObjectBoundaries(objectTypes, attributes) {
-    if (objectTypes === "person" || objectTypes === "people") {
+    if (objectTypes.length === 1 && ["person", "people"].includes(objectTypes[0])) {
       return await this._findPeopleBoundaries();
     } else {
-      const preprocessedFrame = preprocessImageForObjectDetection(
-        this.image,
-        768,
-        768
-      );
-      const imageTensor = preprocessedImageToTensor(
-        this.guruModels.ort(),
-        preprocessedFrame
-      );
-
-      let objectBoundaries = [];
-      const textBatches = prepareTextsForOwlVit(objectTypes);
-      for (const textBatch of textBatches) {
-        const textTensors = this.guruModels
-          .tokenizer()
-          .tokenize(textBatch, {padding: true, max_length: 16});
-
-        const model = this.guruModels.objectDetectionModel();
-        const results = await model.session.run({
-          pixel_values: imageTensor,
-          input_ids: textTensors.input_ids,
-          attention_mask: textTensors.attention_mask,
-        });
-
-        objectBoundaries = objectBoundaries.concat(
-          postProcessObjectDetectionResults(results, textBatch).map(
-            (nextObject) => {
-              return {
-                type: nextObject.class,
-                boundary: new Box(
-                  new Position(
-                    nextObject.bbox[0],
-                    nextObject.bbox[1],
-                    nextObject.probability
-                  ),
-                  new Position(
-                    nextObject.bbox[2],
-                    nextObject.bbox[3],
-                    nextObject.probability
-                  )
-                ),
-              };
-            }
-          )
-        );
-      }
-      return objectBoundaries;
+      const detections = await this.objectDetector.run(this.image, objectTypes);
+      const objects = detections.filter(({ label, confidence }) => {
+        return objectTypes.includes(label) && confidence >= .2; 
+      });
+      return objects.map(({ label, box }) => {
+        return {
+          type: label,
+          boundary: box,
+        }
+      });
     }
   }
 
@@ -455,6 +423,19 @@ export class MovementAnalyzer {
   }
 
   /**
+   * Returns the frames (as FrameObjects) that are within the bounds of a rep.
+   * 
+   * @param {object} rep - The rep whose frames will be returned.
+   * @param {[FrameObject]} frameObjects - The frames in the rep.
+   */
+  static framesForRep(rep, frameObjects) {
+    return frameObjects.filter((frameObject) => {
+      return rep.startFrame.timestamp <= frameObject.timestamp &&
+        rep.endFrame.timestamp >= frameObject.timestamp;
+    });
+  }
+
+  /**
    * Determines which direction the person is mostly facing throughout the video.
    *
    * @param {[FrameObject]} personFrames - The frames of the person.
@@ -521,6 +502,28 @@ export class MovementAnalyzer {
   }
 
   /**
+   * Returns the index of the rep which is in-progress at the time of the FrameCanvas.
+   * If no rep has been counted yet for the current timestamp, then the return value
+   * is the index of the most recent rep.
+   * 
+   * @param {[]} reps - The reps returned by one of the rep finding methods.
+   * @param {FrameCanvas} frameCanvas - The frame currently being rendered.
+   * @return {number} - The index of the rep in-progress. -1 if the frame is before
+   *  the first rep.
+   */
+  static repIndexForFrameCanvas(reps, frameCanvas) {
+    let repIndex = reps.findIndex((rep) => {
+      return frameCanvas.timestamp >= rep.startFrame.timestamp && frameCanvas.timestamp <= rep.endFrame.timestamp;
+    });
+
+    if (frameCanvas.timestamp > reps[reps.length - 1].endFrame.timestamp) {
+      repIndex = reps.length - 1;
+    }
+
+    return repIndex;
+  }
+
+  /**
    * Find the repetitions of a movement a person is performing, by measuring
    * the distance over time between two keypoints. For example, if a person
    * is performing a squat, then measuring the distance between hips and ankles
@@ -528,7 +531,7 @@ export class MovementAnalyzer {
    *
    * By default this function will identify when the two keypoints get closer together
    * and count that as a rep. If reps should instead be counted by the keypoints getting
-   * further apart, set
+   * further apart, set keypointsContract to true.
    *
    * @param {[FrameObject]} personFrames - The location of the person in each frame of the video.
    * @param {Keypoint} keypoint1 - The first keypoint to measure between.
@@ -556,6 +559,100 @@ export class MovementAnalyzer {
       ignoreStartMs = null,
       ignoreEndMs = null,
     } = {}) {
+    const getLocationValue = (personFrame) => {
+      const keypoint1Location = personFrame.keypointLocation(keypoint1);
+      const keypoint2Location = personFrame.keypointLocation(keypoint2);
+
+      if (keypoint1Location && keypoint2Location) {
+        return Math.abs(keypoint1Location.y - keypoint2Location.y);
+      } else {
+        return null;
+      }
+    };
+
+    return MovementAnalyzer._repsByFunction(
+      personFrames,
+      getLocationValue,
+      {
+        keypointsContract: keypointsContract,
+        threshold: threshold,
+        smoothing: smoothing,
+        ignoreStartMs: ignoreStartMs,
+        ignoreEndMs: ignoreEndMs,
+      }
+    );
+  }
+
+  /**
+   * Find the repetitions of a movement a person is performing, by measuring
+   * the location of a keypoint over time. For example, if a person
+   * is jumping, then measuring the Y-coordinate of their ankle
+   * will give a good signal for identifying reps.
+   *
+   * @param {[FrameObject]} personFrames - The location of the person in each frame of the video.
+   * @param {Keypoint} keypoint - The keypoint to measure.
+   * @param {string} axis - The axis of the keypoint to use, either "x" or "y".
+   * @param {boolean} keypointsContract - True if the value of the coordinate decreases during a rep, False if increasing during the rep.
+   *    Defaults true.
+   * @param {number} threshold - The variance of the keypoint location before a rep is counted.
+   *    This number is abstract, it does not translate directly to pixel distance.
+   * @param {number} smoothing - How much smoothing should be applied to keypoints before reps are counted.
+   *    Higher values will apply more smoothing, which can help with lower quality or obscured videos.
+   * @param {number} ignoreStartMs - The number of milliseconds to ignore at the start of the video when counting reps.
+   *    If null, attempts to estimate the start time. Default null.
+   * @param {number} ignoreEndMs - The number of milliseconds to ignore at the end of the video when counting reps.
+   *    If null, attempts to estimate the end time. Default null.
+   * @returns {[]} - An array of objects, each one having a start, middle, and end property that is
+   *    the millisecond timestamp of the boundaries for that rep.
+   */
+  static repsByKeypointLocation(
+    personFrames,
+    keypoint,
+    axis, {
+      keypointsContract = true,
+      threshold = 0.2,
+      smoothing = 2.0,
+      ignoreStartMs = null,
+      ignoreEndMs = null,
+    } = {}) {
+    const getLocationValue = (personFrame) => {
+      const keypointLocation = personFrame.keypointLocation(keypoint);
+
+      if (keypointLocation) {
+        return keypointLocation[axis];
+      } else {
+        return null;
+      }
+    };
+
+    return MovementAnalyzer._repsByFunction(
+      personFrames,
+      getLocationValue,
+      {
+        keypointsContract: keypointsContract,
+        threshold: threshold,
+        smoothing: smoothing,
+        ignoreStartMs: ignoreStartMs,
+        ignoreEndMs: ignoreEndMs,
+      }
+    );
+  }  
+
+  static _repsByFunction(
+    personFrames,
+    valueForFrameFunction, {
+      keypointsContract = true,
+      threshold = 0.2,
+      smoothing = 2.0,
+      ignoreStartMs = null,
+      ignoreEndMs = null,
+    } = {}) {
+    personFrames.forEach((personFrame) => {
+      if (!personFrame) {
+        throw new Error("Encountered a null FrameObject. Ensure 'personFrames' does not contain nulls.");
+      }
+    });
+
     if (!ignoreStartMs || !ignoreEndMs) {
       const [estimatedStartMs, estimatedEndMs] = GeneralAnalyzer.estimateStartAndEndTrim(personFrames);
       if (!ignoreStartMs) {
@@ -572,7 +669,7 @@ export class MovementAnalyzer {
       start + 1
     );
     let firstFrameIndex = 0;
-    const jointDistances = personFrames.map((frameObject) => {
+    const values = personFrames.map((frameObject) => {
       if (frameObject.timestamp < start) {
         ++firstFrameIndex;
         return null;
@@ -580,17 +677,10 @@ export class MovementAnalyzer {
         return null;
       }
 
-      const keypoint1Location = frameObject.keypointLocation(keypoint1);
-      const keypoint2Location = frameObject.keypointLocation(keypoint2);
+      return valueForFrameFunction(frameObject);
+    }).filter((value) => value !== null);
 
-      if (keypoint1Location && keypoint2Location) {
-        return Math.abs(keypoint1Location.y - keypoint2Location.y);
-      } else {
-        return null;
-      }
-    }).filter((distance) => distance !== null);
-
-    const signals = GeneralAnalyzer.signals(jointDistances, !keypointsContract, threshold, smoothing);
+    const signals = GeneralAnalyzer.signals(values, !keypointsContract, threshold, smoothing);
 
     return signals.map((signal) => {
       return {
@@ -599,7 +689,7 @@ export class MovementAnalyzer {
         endFrame: personFrames[signal.end + firstFrameIndex],
       };
     });
-  }
+  }   
 }
 
 export class FrameObjectRegistry {
